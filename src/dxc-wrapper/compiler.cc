@@ -1,0 +1,150 @@
+#include "compiler.hh"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cwchar>
+
+#include <clean-core/macros.hh>
+
+#ifdef CC_OS_WINDOWS
+#include <Windows.h>
+#endif
+
+#include <dxc/dxcapi.h>
+
+#include <clean-core/assert.hh>
+#include <clean-core/capped_vector.hh>
+#include <clean-core/defer.hh>
+
+namespace
+{
+wchar_t const* get_profile_literal(phi::sc::target target)
+{
+    using ct = phi::sc::target;
+    switch (target)
+    {
+    case ct::vertex:
+        return L"vs_6_3";
+    case ct::hull:
+        return L"hs_6_3";
+    case ct::domain:
+        return L"ds_6_3";
+    case ct::geometry:
+        return L"gs_6_3";
+    case ct::pixel:
+        return L"ps_6_3";
+    case ct::compute:
+        return L"cs_6_3";
+    }
+    return L"ERR_UNKNOWN_TARGET";
+}
+
+}
+
+void phi::sc::compiler::initialize()
+{
+    CC_ASSERT(_lib == nullptr && "double initialize");
+    DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&_lib));
+    DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&_compiler));
+}
+
+void phi::sc::compiler::destroy()
+{
+    if (_lib != nullptr)
+    {
+        _lib->Release();
+        _lib = nullptr;
+        _compiler->Release();
+        _compiler = nullptr;
+    }
+}
+
+phi::sc::binary phi::sc::compiler::compile_binary(const char* raw_text, const char* entrypoint, phi::sc::target target, phi::sc::output output, char const* binary_name)
+{
+    IDxcBlobEncoding* encoding;
+    _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
+    CC_DEFER { encoding->Release(); };
+
+    cc::capped_vector<LPCWSTR, 15> compile_flags;
+    if (output == output::dxil)
+    {
+        // nothing to do so far
+    }
+    else
+    {
+        compile_flags = {L"-spirv",       L"-fspv-target-env=vulkan1.1",
+                         L"-fvk-b-shift", L"0",
+                         L"all",          L"-fvk-t-shift",
+                         L"1000",         L"all",
+                         L"-fvk-u-shift", L"2000",
+                         L"all",          L"-fvk-s-shift",
+                         L"3000",         L"all"};
+
+        if (target == target::vertex || target == target::geometry || target == target::domain)
+        {
+            // invert Y for vs, gs, ds targets
+            compile_flags.push_back(L"-fvk-invert-y");
+        }
+    }
+
+    wchar_t binary_name_wide[512];
+    wchar_t entrypoint_wide[64];
+    {
+        // wchar must die
+        std::mbstate_t state = std::mbstate_t();
+        if (binary_name != nullptr)
+        {
+            std::mbsrtowcs(binary_name_wide, &binary_name, 512, &state);
+        }
+        std::mbsrtowcs(entrypoint_wide, &entrypoint, 64, &state);
+    }
+
+    IDxcOperationResult* compile_result;
+    _compiler->Compile(encoding,                                                    // program text
+                       binary_name != nullptr ? binary_name_wide : L"unknown.hlsl", // file name, mostly for error messages
+                       entrypoint_wide,                                             // entry point function
+                       get_profile_literal(target),                                 // target profile
+                       compile_flags.empty() ? nullptr : compile_flags.data(),      // compilation arguments
+                       static_cast<uint32_t>(compile_flags.size()),                 // number of compilation arguments
+                       nullptr, 0,                                                  // name/value defines and their count
+                       nullptr,                                                     // handler for #include directives
+                       &compile_result);
+    CC_DEFER { compile_result->Release(); };
+
+    HRESULT hres;
+    compile_result->GetStatus(&hres);
+
+    if (SUCCEEDED(hres))
+    {
+        IDxcBlob* result_blob;
+        compile_result->GetResult(&result_blob);
+        return binary{result_blob};
+    }
+    else
+    {
+        IDxcBlobEncoding* error_buffer;
+        compile_result->GetErrorBuffer(&error_buffer);
+        std::fprintf(stderr, "[phi][sc] Error compiling shader:\n%s\n", static_cast<char const*>(error_buffer->GetBufferPointer()));
+        error_buffer->Release();
+        return binary{nullptr};
+    }
+}
+
+
+phi::sc::binary::binary(IDxcBlob* blob)
+{
+    internal_blob = blob;
+    if (blob)
+    {
+        data = static_cast<std::byte*>(blob->GetBufferPointer());
+        size = blob->GetBufferSize();
+    }
+}
+
+void phi::sc::destroy_blob(IDxcBlob* blob)
+{
+    if (blob != nullptr)
+    {
+        blob->Release();
+    }
+}
