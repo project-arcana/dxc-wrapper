@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 project(dxc-wrapper)
 
+include(cmake/SourceGroup.cmake)
+
 # ===============================================
 # Global settings
 
@@ -18,7 +20,7 @@ add_subdirectory(extern/dxc)
 
 file(GLOB_RECURSE SOURCES "src/*.cc" "src/*.hh")
 
-source_group(${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
+arcana_source_group(SOURCES)
 
 add_library(${PROJECT_NAME} STATIC ${SOURCES})
 
