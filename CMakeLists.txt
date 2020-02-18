@@ -10,6 +10,8 @@ include(cmake/SourceGroup.cmake)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(DXCWRAP_BUILD_STANDALONE "Build a standalone executable" OFF)
+
 # ===============================================
 # add submodules
 
@@ -29,3 +31,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     clean-core
     dxc-wrap
 )
+
+if (DXCWRAP_BUILD_STANDALONE)
+    add_subdirectory(standalone)
+endif()
