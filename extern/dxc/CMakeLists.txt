@@ -14,13 +14,17 @@ if (MSVC)
     )
 
     # copy the dll to the runtime output folder post-build
-    set(DXC_WRAP_DLL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/bin/dxcompiler.dll")
-    add_custom_command(
-        TARGET dxc-wrap POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${DXC_WRAP_DLL_PATH}"
-        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-    )
+    set(DXC_COPY_DLLS "${CMAKE_CURRENT_SOURCE_DIR}/bin/dxcompiler.dll" "${CMAKE_CURRENT_SOURCE_DIR}/bin/dxil.dll")
+
+    foreach(file_i ${DXC_COPY_DLLS})
+        add_custom_command(
+            TARGET dxc-wrap POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${file_i}"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        )
+    endforeach()
+
 else()
     target_link_libraries(dxc-wrap
         PUBLIC
