@@ -6,6 +6,7 @@
 struct IDxcBlob;
 struct IDxcLibrary;
 struct IDxcCompiler;
+struct IDxcIncludeHandler;
 
 namespace phi::sc
 {
@@ -41,11 +42,13 @@ public:
     void initialize();
     void destroy();
 
-    [[nodiscard]] binary compile_binary(char const* raw_text, char const* entrypoint, target target, output output, char const* binary_name = nullptr);
+    [[nodiscard]] binary compile_binary(
+        char const* raw_text, char const* entrypoint, target target, output output, const wchar_t* binary_name = nullptr, wchar_t const* additional_include_paths = nullptr);
 
 private:
     IDxcLibrary* _lib = nullptr;
     IDxcCompiler* _compiler = nullptr;
+    IDxcIncludeHandler* _include_handler = nullptr;
 };
 
 void destroy_blob(IDxcBlob* blob);

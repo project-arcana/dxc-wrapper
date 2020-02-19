@@ -96,7 +96,9 @@ bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
         }
         else
         {
-            auto dxil_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::dxil);
+            auto const filename_fs = std::filesystem::path(arg_pathin).filename();
+
+            auto dxil_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::dxil, filename_fs.c_str());
             write_binary_to_file(dxil_binary, arg_pathout, "dxil");
 
             if (dxil_binary.internal_blob != nullptr)
@@ -104,7 +106,7 @@ bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
                 // only destroy and re-run if the first one worked
                 phi::sc::destroy_blob(dxil_binary.internal_blob);
 
-                auto spv_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::spirv);
+                auto spv_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::spirv, filename_fs.c_str());
                 write_binary_to_file(spv_binary, arg_pathout, "spv");
                 phi::sc::destroy_blob(spv_binary.internal_blob);
                 return true;
