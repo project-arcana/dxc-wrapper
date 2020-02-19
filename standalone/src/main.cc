@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -66,6 +67,8 @@ void write_binary_to_file(phi::sc::binary const& binary, char const* path, char 
         char outpath[1024];
         std::snprintf(outpath, sizeof(outpath), "%s.%s", path, ending);
 
+        //        printf("writing %ls\n", std::filesystem::absolute(std::filesystem::path(outpath)).c_str());
+
         auto outfile = std::fstream(outpath, std::ios::out | std::ios::binary);
         CC_RUNTIME_ASSERT(outfile.good() && "failed to write shader");
         outfile.write(reinterpret_cast<char const*>(binary.data), binary.size);
@@ -73,13 +76,13 @@ void write_binary_to_file(phi::sc::binary const& binary, char const* path, char 
     }
 }
 
-
-void compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char const* arg_target, char const* arg_entrypoint, char const* arg_pathout)
+bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char const* arg_target, char const* arg_entrypoint, char const* arg_pathout)
 {
     std::fstream in_file(arg_pathin);
     if (!in_file.good())
     {
         printf("Failed to open input file at %s\n", arg_pathin);
+        return false;
     }
     else
     {
@@ -89,6 +92,7 @@ void compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
         if (!parse_target(arg_target, shader_target))
         {
             print_error();
+            return false;
         }
         else
         {
@@ -103,6 +107,11 @@ void compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
                 auto spv_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::spirv);
                 write_binary_to_file(spv_binary, arg_pathout, "spv");
                 phi::sc::destroy_blob(spv_binary.internal_blob);
+                return true;
+            }
+            else
+            {
+                return false;
             }
         }
     }
@@ -113,14 +122,18 @@ int main(int argc, char const* argv[])
     if (argc == 2)
     {
         char const* const arg_pathin = argv[1];
-
         std::fstream in_file(arg_pathin);
         if (!in_file.good())
         {
             printf("Failed to open input file at %s\n", arg_pathin);
+            return 1;
         }
         else
         {
+            // set the working directory to the folder containing the list this was invoked with
+            auto base_path_fs = std::filesystem::absolute(std::filesystem::path(arg_pathin).remove_filename());
+            std::filesystem::current_path(base_path_fs);
+
             phi::sc::compiler compiler;
             compiler.initialize();
             std::string line;
@@ -130,18 +143,28 @@ int main(int argc, char const* argv[])
             std::string entrypoint;
             std::string pathout;
 
+            auto num_errors = 0;
+            auto num_shaders = 0;
+
             while (std::getline(in_file, line))
             {
                 std::stringstream ss(line);
 
                 if (ss >> pathin && ss >> entrypoint && ss >> target && ss >> pathout)
                 {
-//                    printf("Invoked with %s %s %s %s\n", pathin.c_str(), target.c_str(), entrypoint.c_str(), pathout.c_str());
-                    compile_shader(compiler, pathin.c_str(), target.c_str(), entrypoint.c_str(), pathout.c_str());
+                    ++num_shaders;
+                    //                    printf("Invoked with %s %s %s %s\n", pathin.c_str(), target.c_str(), entrypoint.c_str(), pathout.c_str());
+                    auto const success = compile_shader(compiler, pathin.c_str(), target.c_str(), entrypoint.c_str(), pathout.c_str());
+
+                    if (!success)
+                        ++num_errors;
                 }
             }
 
             compiler.destroy();
+
+            printf("compiled %d shaders, %d errors\n", num_shaders, num_errors);
+            return (num_errors == 0) ? 0 : 1;
         }
     }
     else if (argc == 5)
@@ -153,11 +176,14 @@ int main(int argc, char const* argv[])
 
         phi::sc::compiler compiler;
         compiler.initialize();
-        compile_shader(compiler, arg_pathin, arg_target, arg_entrypoint, arg_pathout);
+        auto const success = compile_shader(compiler, arg_pathin, arg_target, arg_entrypoint, arg_pathout);
         compiler.destroy();
+
+        return success ? 0 : 1;
     }
     else
     {
         print_error();
+        return 1;
     }
 }
