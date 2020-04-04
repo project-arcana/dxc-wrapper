@@ -101,8 +101,10 @@ bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
             auto const filename_fs = std::filesystem::path(arg_pathin).filename();
 
             // path.c_str() gives char const* on non-win32, but we're lucky to have this param be optional
-            auto const f_path_to_wchar = [&](std::filesystem::path const& path) -> wchar_t const* {
-                if constexpr (std::is_same_v<std::filesystem::path::value_type, wchar_t>)
+
+            auto const f_path_to_wchar = [&](auto const& path) -> wchar_t const* {
+                // this must be a templated lambda so the first body doesn't compile if the condition is false
+                if constexpr (std::is_same_v<typename std::decay_t<decltype(path)>::value_type, wchar_t>) // the condition must directly depend on the template argument
                 {
                     return path.c_str();
                 }
