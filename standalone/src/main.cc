@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <type_traits>
 
 #include <clean-core/assert.hh>
 
@@ -56,7 +57,7 @@ std::string readall(std::istream& in)
     char buffer[4096];
     while (in.read(buffer, sizeof(buffer)))
         ret.append(buffer, sizeof(buffer));
-    ret.append(buffer, in.gcount());
+    ret.append(buffer, size_t(in.gcount()));
     return ret;
 }
 
@@ -71,7 +72,7 @@ void write_binary_to_file(phi::sc::binary const& binary, char const* path, char 
 
         auto outfile = std::fstream(outpath, std::ios::out | std::ios::binary);
         CC_RUNTIME_ASSERT(outfile.good() && "failed to write shader");
-        outfile.write(reinterpret_cast<char const*>(binary.data), binary.size);
+        outfile.write(reinterpret_cast<char const*>(binary.data), std::streamsize(binary.size));
         outfile.close();
     }
 }
@@ -88,6 +89,7 @@ bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
     {
         auto const content = readall(in_file);
 
+
         phi::sc::target shader_target;
         if (!parse_target(arg_target, shader_target))
         {
@@ -98,7 +100,19 @@ bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
         {
             auto const filename_fs = std::filesystem::path(arg_pathin).filename();
 
-            auto dxil_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::dxil, filename_fs.c_str());
+            // path.c_str() gives char const* on non-win32, but we're lucky to have this param be optional
+            auto const f_path_to_wchar = [&](std::filesystem::path const& path) -> wchar_t const* {
+                if constexpr (std::is_same_v<std::filesystem::path::value_type, wchar_t>)
+                {
+                    return path.c_str();
+                }
+                else
+                {
+                    return nullptr;
+                }
+            };
+
+            auto dxil_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::dxil, f_path_to_wchar(filename_fs));
             write_binary_to_file(dxil_binary, arg_pathout, "dxil");
 
             if (dxil_binary.internal_blob != nullptr)
@@ -106,7 +120,7 @@ bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
                 // only destroy and re-run if the first one worked
                 phi::sc::destroy_blob(dxil_binary.internal_blob);
 
-                auto spv_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::spirv, filename_fs.c_str());
+                auto spv_binary = compiler.compile_binary(content.c_str(), arg_entrypoint, shader_target, phi::sc::output::spirv, f_path_to_wchar(filename_fs));
                 write_binary_to_file(spv_binary, arg_pathout, "spv");
                 phi::sc::destroy_blob(spv_binary.internal_blob);
                 return true;
