@@ -12,6 +12,7 @@ namespace phi::sc
 {
 struct binary
 {
+    binary() = default;
     binary(IDxcBlob* blob);
 
     IDxcBlob* internal_blob = nullptr;
@@ -42,8 +43,12 @@ public:
     void initialize();
     void destroy();
 
-    [[nodiscard]] binary compile_binary(
-        char const* raw_text, char const* entrypoint, target target, output output, const wchar_t* binary_name = nullptr, wchar_t const* additional_include_paths = nullptr);
+    [[nodiscard]] binary compile_binary(char const* raw_text,
+                                        char const* entrypoint,
+                                        target target,
+                                        output output,
+                                        const wchar_t* binary_name = nullptr,
+                                        wchar_t const* additional_include_paths = nullptr);
 
 private:
     IDxcLibrary* _lib = nullptr;
