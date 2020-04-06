@@ -64,14 +64,19 @@ void phi::sc::compiler::destroy()
     }
 }
 
-phi::sc::binary phi::sc::compiler::compile_binary(
-    const char* raw_text, const char* entrypoint, phi::sc::target target, phi::sc::output output, wchar_t const* binary_name, wchar_t const* additional_include_paths)
+phi::sc::binary phi::sc::compiler::compile_binary(const char* raw_text,
+                                                  const char* entrypoint,
+                                                  phi::sc::target target,
+                                                  phi::sc::output output,
+                                                  wchar_t const* binary_name,
+                                                  wchar_t const* additional_include_paths,
+                                                  bool build_debug_info)
 {
     IDxcBlobEncoding* encoding;
     _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
     CC_DEFER { encoding->Release(); };
 
-    cc::capped_vector<LPCWSTR, 17> compile_flags;
+    cc::capped_vector<LPCWSTR, 18> compile_flags;
 
     if (output == output::dxil)
     {
@@ -99,6 +104,9 @@ phi::sc::binary phi::sc::compiler::compile_binary(
         compile_flags.push_back(L"/I");
         compile_flags.push_back(additional_include_paths);
     }
+
+    if (build_debug_info)
+        compile_flags.push_back(L"/Zi");
 
     wchar_t entrypoint_wide[64];
     {

@@ -48,7 +48,8 @@ public:
                                         target target,
                                         output output,
                                         const wchar_t* binary_name = nullptr,
-                                        wchar_t const* additional_include_paths = nullptr);
+                                        wchar_t const* additional_include_paths = nullptr,
+                                        bool build_debug_info = false);
 
 private:
     IDxcLibrary* _lib = nullptr;
