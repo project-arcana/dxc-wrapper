@@ -70,6 +70,9 @@ void write_binary_to_file(phi::sc::binary const& binary, char const* path, char 
 
         //        printf("writing %ls\n", std::filesystem::absolute(std::filesystem::path(outpath)).c_str());
 
+        // recursively create directories required for the output
+        std::filesystem::create_directories(std::filesystem::path(outpath).remove_filename());
+
         auto outfile = std::fstream(outpath, std::ios::out | std::ios::binary);
         CC_RUNTIME_ASSERT(outfile.good() && "failed to write shader");
         outfile.write(reinterpret_cast<char const*>(binary.data), std::streamsize(binary.size));
