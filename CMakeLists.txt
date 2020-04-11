@@ -32,6 +32,12 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     dxc-wrap
 )
 
+if (NOT MSVC)
+    target_link_libraries(${PROJECT_NAME} PUBLIC
+        -lstdc++fs
+    )
+endif()
+
 if (DXCWRAP_BUILD_STANDALONE)
     add_subdirectory(standalone)
 endif()
