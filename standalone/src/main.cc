@@ -45,10 +45,10 @@ bool parse_target(char const* str, phi::sc::target& out_tgt)
 
 void print_error()
 {
-    printf("usage: dxc-standalone [input file] [entrypoint] [target] [output file without ending]\n");
-    printf("  target is one of: vs, ds, hs, gs, ps, cs\n\n");
-    printf("or: dxc-standalone [list file]\n");
-    printf("  list file contains normal arguments line-by-line\n");
+    std::printf("usage: dxc-standalone [input file] [entrypoint] [target] [output file without ending]\n"
+                "  target is one of: vs, ds, hs, gs, ps, cs\n\n"
+                "or: dxc-standalone [list file]\n"
+                "  list file contains normal arguments line-by-line\n");
 }
 
 std::string readall(std::istream& in)
@@ -85,7 +85,7 @@ bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char co
     std::fstream in_file(arg_pathin);
     if (!in_file.good())
     {
-        printf("Failed to open input file at %s\n", arg_pathin);
+        std::printf("Failed to open input file at %s\n", arg_pathin);
         return false;
     }
     else
@@ -146,7 +146,7 @@ int main(int argc, char const* argv[])
         std::fstream in_file(arg_pathin);
         if (!in_file.good())
         {
-            printf("Failed to open input file at %s\n", arg_pathin);
+            std::fprintf(stderr, "ERROR: failed to open input file at %s\n", arg_pathin);
             return 1;
         }
         else
@@ -164,11 +164,17 @@ int main(int argc, char const* argv[])
             std::string entrypoint;
             std::string pathout;
 
+            auto num_lines = 0;
             auto num_errors = 0;
             auto num_shaders = 0;
 
             while (std::getline(in_file, line))
             {
+                ++num_lines;
+                // skip empty lines and comments
+                if (line.empty() || line[0] == '#')
+                    continue;
+
                 std::stringstream ss(line);
 
                 if (ss >> pathin && ss >> entrypoint && ss >> target && ss >> pathout)
@@ -180,11 +186,16 @@ int main(int argc, char const* argv[])
                     if (!success)
                         ++num_errors;
                 }
+                else
+                {
+                    std::fprintf(stderr, "ERROR: failed to parse %s:%d:\n  %s\n\n", arg_pathin, num_lines, line.c_str());
+                    ++num_errors;
+                }
             }
 
             compiler.destroy();
 
-            printf("compiled %d shaders, %d errors\n", num_shaders, num_errors);
+            std::printf("compiled %d shaders, %d errors\n", num_shaders, num_errors);
             return (num_errors == 0) ? 0 : 1;
         }
     }

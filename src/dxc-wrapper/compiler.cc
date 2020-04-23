@@ -78,11 +78,7 @@ phi::sc::binary phi::sc::compiler::compile_binary(const char* raw_text,
 
     cc::capped_vector<LPCWSTR, 18> compile_flags;
 
-    if (output == output::dxil)
-    {
-        // nothing to do so far
-    }
-    else
+    if (output == output::spirv)
     {
         compile_flags = {L"-spirv",       L"-fspv-target-env=vulkan1.1",
                          L"-fvk-b-shift", L"0",
