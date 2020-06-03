@@ -72,6 +72,8 @@ phi::sc::binary phi::sc::compiler::compile_binary(const char* raw_text,
                                                   wchar_t const* additional_include_paths,
                                                   bool build_debug_info)
 {
+    CC_ASSERT(_lib != nullptr && "Uninitialized phi::sc::compiler");
+
     IDxcBlobEncoding* encoding;
     _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
     CC_DEFER { encoding->Release(); };

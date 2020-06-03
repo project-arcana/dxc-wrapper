@@ -5,8 +5,29 @@ namespace phi::sc
 struct binary;
 struct compiler;
 
-void write_binary_to_file(phi::sc::binary const& binary, char const* path, char const* ending);
+/// Writes a compiled binary to disk, creates folders if nonexisting
+bool write_binary_to_file(phi::sc::binary const& binary, char const* path, char const* ending);
 
 /// compile a shader and directly write both target versions to file, returns true on success
-bool compile_shader(phi::sc::compiler& compiler, char const* arg_pathin, char const* arg_target, char const* arg_entrypoint, char const* arg_pathout);
+/// output_path without file ending
+///
+/// Usage:
+/// compile_shader(comp, "res/shader.hlsl", "vs", "main_vertex", "res/bin/shader_vs");
+bool compile_shader(phi::sc::compiler& compiler, char const* source_path, char const* shader_target, char const* entrypoint, char const* output_path);
+
+/// compile and write to disk all shaders as specified in a shaderlist.txt file
+///
+/// returns amount of compiled shaders, -1 if the shaderlist cannot be opened
+/// out_num_errors optionally receives amount of parse and compile errors
+///
+/// shaderlist file: ASCII, line-by-line, lines empty or starting with # are ignored
+/// paths relative to path of shaderlist file
+/// example:
+///
+/// # [input file] [entrypoint] [type (vs/ps/gs/ds/hs/cs)] [output file without extension]
+/// # imgui
+/// src/imgui.hlsl main_vs vs bin/imgui_vs
+/// src/imgui.hlsl main_ps ps bin/imgui_ps
+///
+int compile_shaderlist(phi::sc::compiler& compiler, char const* shaderlist_file, int* out_num_errors = nullptr);
 }
