@@ -53,15 +53,15 @@ void phi::sc::compiler::initialize()
 
 void phi::sc::compiler::destroy()
 {
-    if (_lib != nullptr)
-    {
-        _include_handler->Release();
-        _include_handler = nullptr;
-        _compiler->Release();
-        _compiler = nullptr;
-        _lib->Release();
-        _lib = nullptr;
-    }
+    if (_lib == nullptr)
+        return;
+
+    _include_handler->Release();
+    _include_handler = nullptr;
+    _compiler->Release();
+    _compiler = nullptr;
+    _lib->Release();
+    _lib = nullptr;
 }
 
 phi::sc::binary phi::sc::compiler::compile_binary(const char* raw_text,
