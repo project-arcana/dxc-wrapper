@@ -78,17 +78,12 @@ phi::sc::binary phi::sc::compiler::compile_binary(const char* raw_text,
     _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
     CC_DEFER { encoding->Release(); };
 
-    cc::capped_vector<LPCWSTR, 18> compile_flags;
+    cc::capped_vector<LPCWSTR, 20> compile_flags;
 
     if (output == output::spirv)
     {
-        compile_flags = {L"-spirv",       L"-fspv-target-env=vulkan1.1",
-                         L"-fvk-b-shift", L"0",
-                         L"all",          L"-fvk-t-shift",
-                         L"1000",         L"all",
-                         L"-fvk-u-shift", L"2000",
-                         L"all",          L"-fvk-s-shift",
-                         L"3000",         L"all"};
+        compile_flags = {
+            L"-spirv", L"-fspv-target-env=vulkan1.1", L"-fvk-use-dx-layout", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all", L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
 
         if (target == target::vertex || target == target::geometry || target == target::domain)
         {
