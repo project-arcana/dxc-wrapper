@@ -18,23 +18,23 @@ int main(int argc, char const* argv[])
     {
         char const* const arg_pathin = argv[1];
 
-        phi::sc::compiler compiler;
+        dxcw::compiler compiler;
         compiler.initialize();
 
-        int num_errors = 0;
-        auto const res = phi::sc::compile_shaderlist(compiler, arg_pathin, &num_errors);
+        dxcw::shaderlist_compilation_result res;
+        dxcw::compile_shaderlist(compiler, arg_pathin, &res);
 
         compiler.destroy();
 
-        if (res == -1)
+        if (res.num_shaders_detected == -1)
         {
             print_error();
             return 1;
         }
         else
         {
-            std::printf("compiled %d shaders, %d errors\n", res, num_errors);
-            return (num_errors == 0) ? 0 : 1;
+            std::printf("compiled %d shaders, %d errors\n", res.num_shaders_detected, res.num_errors);
+            return (res.num_errors == 0) ? 0 : 1;
         }
     }
     else if (argc == 5)
@@ -44,9 +44,9 @@ int main(int argc, char const* argv[])
         char const* const arg_target = argv[3];
         char const* const arg_pathout = argv[4];
 
-        phi::sc::compiler compiler;
+        dxcw::compiler compiler;
         compiler.initialize();
-        auto const success = phi::sc::compile_shader(compiler, arg_pathin, arg_target, arg_entrypoint, arg_pathout);
+        auto const success = dxcw::compile_shader(compiler, arg_pathin, arg_target, arg_entrypoint, arg_pathout);
 
         if (!success)
             print_error();
