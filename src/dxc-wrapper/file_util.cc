@@ -24,7 +24,7 @@ std::string readall(std::istream& in)
     return ret;
 }
 
-bool parse_target(char const* str, phi::sc::target& out_tgt)
+bool parse_target(char const* str, dxcw::target& out_tgt)
 {
     if (std::strlen(str) < 1)
     {
@@ -35,22 +35,22 @@ bool parse_target(char const* str, phi::sc::target& out_tgt)
     switch (str[0])
     {
     case 'v':
-        out_tgt = phi::sc::target::vertex;
+        out_tgt = dxcw::target::vertex;
         return true;
     case 'h':
-        out_tgt = phi::sc::target::hull;
+        out_tgt = dxcw::target::hull;
         return true;
     case 'd':
-        out_tgt = phi::sc::target::domain;
+        out_tgt = dxcw::target::domain;
         return true;
     case 'g':
-        out_tgt = phi::sc::target::geometry;
+        out_tgt = dxcw::target::geometry;
         return true;
     case 'p':
-        out_tgt = phi::sc::target::pixel;
+        out_tgt = dxcw::target::pixel;
         return true;
     case 'c':
-        out_tgt = phi::sc::target::compute;
+        out_tgt = dxcw::target::compute;
         return true;
     default:
         return false;
@@ -58,7 +58,7 @@ bool parse_target(char const* str, phi::sc::target& out_tgt)
 }
 }
 
-bool phi::sc::write_binary_to_file(const phi::sc::binary& binary, const char* path, const char* ending)
+bool dxcw::write_binary_to_file(const dxcw::binary& binary, const char* path, const char* ending)
 {
     if (binary.data == nullptr)
         return false;
@@ -82,7 +82,7 @@ bool phi::sc::write_binary_to_file(const phi::sc::binary& binary, const char* pa
     return true;
 }
 
-bool phi::sc::compile_shader(phi::sc::compiler& compiler, const char* source_path, const char* shader_target, const char* entrypoint, const char* output_path)
+bool dxcw::compile_shader(dxcw::compiler& compiler, const char* source_path, const char* shader_target, const char* entrypoint, const char* output_path)
 {
     std::fstream in_file(source_path);
     if (!in_file.good())
@@ -95,7 +95,7 @@ bool phi::sc::compile_shader(phi::sc::compiler& compiler, const char* source_pat
         auto const content = readall(in_file);
 
 
-        phi::sc::target parsed_target;
+        dxcw::target parsed_target;
         if (!parse_target(shader_target, parsed_target))
         {
             return false;
@@ -118,17 +118,19 @@ bool phi::sc::compile_shader(phi::sc::compiler& compiler, const char* source_pat
                 }
             };
 
-            auto dxil_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, phi::sc::output::dxil, f_path_to_wchar(filename_fs));
-            phi::sc::write_binary_to_file(dxil_binary, output_path, "dxil");
+            auto dxil_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::dxil, f_path_to_wchar(filename_fs),
+                                                       nullptr, false, source_path);
+            dxcw::write_binary_to_file(dxil_binary, output_path, "dxil");
 
             if (dxil_binary.internal_blob != nullptr)
             {
                 // only destroy and re-run if the first one worked
-                phi::sc::destroy_blob(dxil_binary.internal_blob);
+                dxcw::destroy_blob(dxil_binary.internal_blob);
 
-                auto spv_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, phi::sc::output::spirv, f_path_to_wchar(filename_fs));
-                phi::sc::write_binary_to_file(spv_binary, output_path, "spv");
-                phi::sc::destroy_blob(spv_binary.internal_blob);
+                auto spv_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::spirv,
+                                                          f_path_to_wchar(filename_fs), nullptr, false, source_path);
+                dxcw::write_binary_to_file(spv_binary, output_path, "spv");
+                dxcw::destroy_blob(spv_binary.internal_blob);
                 return true;
             }
             else
@@ -139,13 +141,17 @@ bool phi::sc::compile_shader(phi::sc::compiler& compiler, const char* source_pat
     }
 }
 
-int phi::sc::compile_shaderlist(phi::sc::compiler& compiler, const char* shaderlist_file, int* out_num_errors)
+void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_file, shaderlist_compilation_result* out_results)
 {
     std::fstream in_file(shaderlist_file);
     if (!in_file.good())
     {
         std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", shaderlist_file);
-        return -1;
+
+        if (out_results)
+            *out_results = {-1, 1};
+
+        return;
     }
 
     // set the working directory to the folder containing the list this was invoked with
@@ -192,8 +198,6 @@ int phi::sc::compile_shaderlist(phi::sc::compiler& compiler, const char* shaderl
     // restore workdir
     std::filesystem::current_path(prev_workdir);
 
-    if (out_num_errors)
-        *out_num_errors = num_errors;
-
-    return num_shaders;
+    if (out_results)
+        *out_results = {num_shaders, num_errors};
 }

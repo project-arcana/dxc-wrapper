@@ -8,7 +8,7 @@ struct IDxcLibrary;
 struct IDxcCompiler;
 struct IDxcIncludeHandler;
 
-namespace phi::sc
+namespace dxcw
 {
 struct binary
 {
@@ -47,9 +47,10 @@ public:
                                         char const* entrypoint,
                                         target target,
                                         output output,
-                                        const wchar_t* binary_name = nullptr,
-                                        wchar_t const* additional_include_paths = nullptr,
-                                        bool build_debug_info = false);
+                                        const wchar_t* opt_binary_name = nullptr,
+                                        wchar_t const* opt_additional_include_paths = nullptr,
+                                        bool build_debug_info = false,
+                                        char const* opt_filename_for_errors = nullptr);
 
 private:
     IDxcLibrary* _lib = nullptr;
