@@ -15,6 +15,7 @@
 #include <clean-core/assert.hh>
 #include <clean-core/capped_vector.hh>
 #include <clean-core/defer.hh>
+#include <clean-core/native/wchar_conversion.hh>
 
 #include "common/log.hh"
 
@@ -114,9 +115,7 @@ dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
     }
 
     // entrypoint
-    std::mbstate_t state = {};
-    char const* entrypoint_copy = entrypoint; // copy the pointer as mbsrtowcs writes to it
-    std::mbsrtowcs(entrypoint_wide, &entrypoint_copy, sizeof(entrypoint_wide), &state);
+    cc::char_to_widechar(entrypoint_wide, entrypoint);
 
     compile_arguments.push_back(L"-E");
     compile_arguments.push_back(entrypoint_wide);
@@ -124,9 +123,7 @@ dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
     // include paths
     if (opt_additional_include_paths != nullptr)
     {
-        state = {};
-        char const* includepath_copy = opt_additional_include_paths;
-        std::mbsrtowcs(include_path_wide, &includepath_copy, sizeof(include_path_wide), &state);
+        cc::char_to_widechar(include_path_wide, opt_additional_include_paths);
 
         compile_arguments.push_back(L"-I");
         compile_arguments.push_back(include_path_wide);
