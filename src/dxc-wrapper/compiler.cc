@@ -68,89 +68,124 @@ dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
                                             const char* entrypoint,
                                             dxcw::target target,
                                             dxcw::output output,
-                                            wchar_t const* opt_binary_name,
-                                            wchar_t const* opt_additional_include_paths,
+                                            char const* opt_additional_include_paths,
                                             bool build_debug_info,
                                             const char* opt_filename_for_errors)
 {
+#define DEFER_RELEASE(_ptr_)  \
+    CC_DEFER                  \
+    {                         \
+        if (_ptr_)            \
+            _ptr_->Release(); \
+    }
+
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
-    IDxcBlobEncoding* encoding;
-    _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
-    CC_DEFER { encoding->Release(); };
+    wchar_t include_path_wide[1024];
+    wchar_t entrypoint_wide[64];
 
-    cc::capped_vector<LPCWSTR, 20> compile_flags;
+    IDxcBlobEncoding* encoding = nullptr;
+    DEFER_RELEASE(encoding);
+    _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
+
+    cc::capped_vector<LPCWSTR, 24> compile_arguments;
 
     if (output == output::spirv)
     {
+        // SPIR-V specific flags
+
         // -fvk-use-dx-layout: no std140/std430/other vulkan-specific layouting, behave just like HLSL->D3D12
         // -fvk-b/t/u/s-shift: shift registers up to avoid overlap, phi-specific
-        compile_flags = {
+        compile_arguments = {
             L"-spirv", L"-fspv-target-env=vulkan1.1", L"-fvk-use-dx-layout", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all", L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
 
         if (target == target::vertex || target == target::geometry || target == target::domain)
         {
             // -fvk-invert-y (only in vs/gs/ds): line up vulkans flipped viewport to behave just like HLSL->D3D12
-            compile_flags.push_back(L"-fvk-invert-y");
+            compile_arguments.push_back(L"-fvk-invert-y");
         }
     }
+    else if (output == output::dxil)
+    {
+        // suppress warnings about [[vk::push_constant]] when compiling to dxil
+        compile_arguments.push_back(L"-Wno-ignored-attributes");
+    }
 
+    // entrypoint
+    std::mbstate_t state = {};
+    char const* entrypoint_copy = entrypoint; // copy the pointer as mbsrtowcs writes to it
+    std::mbsrtowcs(entrypoint_wide, &entrypoint_copy, sizeof(entrypoint_wide), &state);
+
+    compile_arguments.push_back(L"-E");
+    compile_arguments.push_back(entrypoint_wide);
+
+    // include paths
     if (opt_additional_include_paths != nullptr)
     {
-        compile_flags.push_back(L"/I");
-        compile_flags.push_back(opt_additional_include_paths);
+        state = {};
+        char const* includepath_copy = opt_additional_include_paths;
+        std::mbsrtowcs(include_path_wide, &includepath_copy, sizeof(include_path_wide), &state);
+
+        compile_arguments.push_back(L"-I");
+        compile_arguments.push_back(include_path_wide);
     }
 
     if (build_debug_info)
-        compile_flags.push_back(L"/Zi");
+        compile_arguments.push_back(L"-Zi");
 
-    wchar_t entrypoint_wide[64];
+    // profile target
+    compile_arguments.push_back(L"-T");
+    compile_arguments.push_back(get_profile_literal(target));
+
+    DxcBuffer source_buffer;
+    source_buffer.Ptr = raw_text;
+    source_buffer.Size = std::strlen(raw_text);
+    source_buffer.Encoding = CP_UTF8;
+
+    IDxcResult* result = nullptr;
+    DEFER_RELEASE(result);
+    _compiler->Compile(&source_buffer, compile_arguments.empty() ? nullptr : compile_arguments.data(), uint32_t(compile_arguments.size()),
+                       _include_handler, IID_PPV_ARGS(&result));
+
+
+    // Print errors and warning if present
+    IDxcBlobUtf8* pErrors = nullptr;
+    DEFER_RELEASE(pErrors);
+    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), nullptr);
+    // Note that d3dcompiler would return null if no errors or warnings are present.
+    // IDxcCompiler3::Compile will always return an error buffer, but its length will be zero if there are no warnings or errors.
+    if (pErrors != nullptr && pErrors->GetStringLength() != 0)
     {
-        // wchar must die
-        std::mbstate_t state = std::mbstate_t();
-        char const* entrypoint_copy = entrypoint; // copy the pointer as mbsrtowcs writes to it ('entrypoint' is used later on in log output)
-        std::mbsrtowcs(entrypoint_wide, &entrypoint_copy, 64, &state);
+        fprintf(stderr, "shader \"%s\", entrypoint \"%s\":\n%s\n", //
+                opt_filename_for_errors, entrypoint, static_cast<char const*>(pErrors->GetBufferPointer()));
     }
 
-    IDxcOperationResult* compile_result;
-    _compiler->Compile(encoding,                                                       // program text
-                       opt_binary_name != nullptr ? opt_binary_name : L"unknown.hlsl", // file name, mostly for error messages
-                       entrypoint_wide,                                                // entry point function
-                       get_profile_literal(target),                                    // target profile
-                       compile_flags.empty() ? nullptr : compile_flags.data(),         // compilation arguments
-                       static_cast<uint32_t>(compile_flags.size()),                    // number of compilation arguments
-                       nullptr, 0,                                                     // name/value defines and their count
-                       _include_handler,                                               // handler for #include directives
-                       &compile_result);
-    CC_DEFER { compile_result->Release(); };
-
-    HRESULT hres;
-    compile_result->GetStatus(&hres);
-
-    if (SUCCEEDED(hres))
+    // Quit on failure
+    HRESULT hrStatus;
+    result->GetStatus(&hrStatus);
+    if (FAILED(hrStatus))
     {
-        IDxcBlob* result_blob;
-        compile_result->GetResult(&result_blob);
-        return binary{result_blob};
-    }
-    else
-    {
-        IDxcBlobEncoding* error_buffer;
-        compile_result->GetErrorBuffer(&error_buffer);
-
-        if (opt_filename_for_errors)
-        {
-            std::fprintf(stderr, "[dxc-wrapper] error compiling shader \"%s\", entrypoint \"%s\":\n%s\n", opt_filename_for_errors, entrypoint,
-                         static_cast<char const*>(error_buffer->GetBufferPointer()));
-        }
-        else
-        {
-            std::fprintf(stderr, "[dxc-wrapper] error compiling shader:\n%s\n", static_cast<char const*>(error_buffer->GetBufferPointer()));
-        }
-
-        error_buffer->Release();
+        fprintf(stderr, "compilation failed\n");
         return binary{nullptr};
     }
+
+
+    // Return binary blob
+    IDxcBlob* pShader = nullptr;
+    result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), nullptr);
+    return binary{pShader};
+
+    // Save pdb
+    //    IDxcBlob* pPDB = nullptr;
+    //    IDxcBlobUtf16* pPDBName = nullptr;
+    //    result->GetOutput(DXC_OUT_PDB, IID_PPV_ARGS(&pPDB), &pPDBName);
+    //    {
+    //        FILE* fp = NULL;
+
+    //        // Note that if you don't specify -Fd, a pdb name will be automatically generated. Use this file name to save the pdb so that PIX can
+    //        find it quickly. _wfopen_s(&fp, pPDBName->GetStringPointer(), L"wb"); fwrite(pPDB->GetBufferPointer(), pPDB->GetBufferSize(), 1, fp);
+    //        fclose(fp);
+    //    }
 }
 
 

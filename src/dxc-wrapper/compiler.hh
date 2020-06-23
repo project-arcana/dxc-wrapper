@@ -5,7 +5,7 @@
 
 struct IDxcBlob;
 struct IDxcLibrary;
-struct IDxcCompiler;
+struct IDxcCompiler3;
 struct IDxcIncludeHandler;
 
 namespace dxcw
@@ -47,14 +47,13 @@ public:
                                         char const* entrypoint,
                                         target target,
                                         output output,
-                                        const wchar_t* opt_binary_name = nullptr,
-                                        wchar_t const* opt_additional_include_paths = nullptr,
+                                        const char* opt_additional_include_paths = nullptr,
                                         bool build_debug_info = false,
                                         char const* opt_filename_for_errors = nullptr);
 
 private:
     IDxcLibrary* _lib = nullptr;
-    IDxcCompiler* _compiler = nullptr;
+    IDxcCompiler3* _compiler = nullptr;
     IDxcIncludeHandler* _include_handler = nullptr;
 };
 
