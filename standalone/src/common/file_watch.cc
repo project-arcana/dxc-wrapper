@@ -91,7 +91,7 @@ private:
 
         // == Native Setup ==
 #if defined __unix__
-            std::array<char, bufferSize> buffer;
+            std::array<char, gc_buffer_size> buffer;
 #elif defined _WIN32
             std::array<BYTE, gc_buffer_size> buffer;
             DWORD bytesReturned = 0;
@@ -117,13 +117,13 @@ private:
                         inotify_event* event = reinterpret_cast<inotify_event*>(&buffer[size_t(i)]);
                         if (event->len /*&& (event->mask & IN_CREATE || event->mask & IN_MODIFY)*/)
                         {
-                            FileLocation changedFile = getFileLocation(std::string(event->name));
+                            auto const changedFile = std::filesystem::canonical(this->path / event->name);
 
                             // Loop over every registered file
                             {
                                 std::lock_guard<std::mutex> lock(this->fileMutex);
                                 for (auto const& file : this->files)
-                                    if (changedFile.filename == file.path.filename)
+                                    if (changedFile == file.canonical_path)
                                     {
                                         file.rawPtr->mChanged.store(true, std::memory_order_release);
                                         break;
@@ -208,9 +208,9 @@ public:
 
 #ifdef __unix__
         auto unixFolder = inotify_init();
-        GLOW_RUNTIME_ASSERT(unixFolder >= 0, "Failed to initialize inotify", return nullptr);
-        auto unixWatch = inotify_add_watch(unixFolder, path, IN_MODIFY | IN_CREATE);
-        GLOW_RUNTIME_ASSERT(unixWatch >= 0, "Failed to create inotify watch", return nullptr);
+        assert(unixFolder >= 0 && "Failed to initialize inotify");
+        auto unixWatch = inotify_add_watch(unixFolder, path.c_str(), IN_MODIFY | IN_CREATE);
+        assert(unixWatch >= 0 && "Failed to create inotify watch");
 
         return std::make_unique<Monitor>(path, unixFolder, unixWatch);
 #elif defined _WIN32
@@ -230,8 +230,7 @@ public:
     {
         threadAlive.store(false, std::memory_order_release);
 #ifdef __unix__
-        if (inotify_rm_watch(unixFolder, unixWatch) == -1)
-            error() << "Failed to remove inotify watch";
+        inotify_rm_watch(unixFolder, unixWatch);
 #elif defined _WIN32
         SetEvent(winCloseEvent);
 #endif
