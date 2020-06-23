@@ -2,12 +2,14 @@
 
 #include <rich-log/logger.hh>
 
+#include <dxc-wrapper/common/log.hh>
+
 #include "entry.hh"
 
 int main(int argc, char const* argv[])
 {
     rlog::enable_win32_colors();
-   // rlog::set_console_log_style(rlog::console_log_style::brief);
+    // rlog::set_console_log_style(rlog::console_log_style::brief);
 
     bool is_watch_mode = false;
     cc::string shaderlist_file;
@@ -31,6 +33,13 @@ int main(int argc, char const* argv[])
     }
     else
     {
-        return dxcw::compile_shader_single(args);
+        auto const res = dxcw::compile_shader_single(args);
+
+        if (is_watch_mode)
+        {
+            DXCW_LOG_ERROR("Cannot watch single shader compilation");
+        }
+
+        return res;
     }
 }

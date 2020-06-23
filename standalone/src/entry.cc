@@ -51,6 +51,7 @@ int dxcw::compile_shader_single(const nx::args& args)
     return success ? 0 : 1;
 }
 
+
 int dxcw::compile_shaderlist_single(const char* shaderlist_path)
 {
     dxcw::compiler compiler;
@@ -169,7 +170,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path)
 
         if (shaderlist_watch->isChanged())
         {
-            DXCW_LOG("shaderlist file changed, recompiling all shaders\n");
+            DXCW_LOG("shaderlist file changed, recompiling all shaders");
 
             // changes in shaderlist - refresh
             if (!f_refresh_all_entries())
@@ -208,5 +209,6 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path)
     }
 
     compiler.destroy();
+    DXCW_LOG("stopped watching");
     return 0;
 }
