@@ -129,7 +129,7 @@ bool dxcw::compile_shader(dxcw::compiler& compiler, const char* source_path, con
 void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_file, shaderlist_compilation_result* out_results)
 {
     auto const f_onerror = [&]() -> void {
-            DXCW_LOG_ERROR("failed to open shaderlist file at {}", shaderlist_file);
+        DXCW_LOG_ERROR("failed to open shaderlist file at {}", shaderlist_file);
         if (out_results)
             *out_results = {-1, 1};
     };
@@ -149,6 +149,8 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
         f_onerror();
         return;
     }
+
+    auto const base_path_string = base_path_fs.string();
 
     std::string line;
 
@@ -182,7 +184,8 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
             }
 
             ++num_shaders;
-            auto const success = compile_shader(compiler, pathin.c_str(), target.c_str(), entrypoint.c_str(), pathout.c_str());
+            auto const success = compile_shader(compiler, pathin_absolute.string().c_str(), target.c_str(), entrypoint.c_str(), pathout.c_str(),
+                                                base_path_string.c_str());
 
             if (!success)
                 ++num_errors;
