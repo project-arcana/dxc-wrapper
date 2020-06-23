@@ -29,6 +29,7 @@ add_library(${PROJECT_NAME} STATIC ${SOURCES})
 target_include_directories(${PROJECT_NAME} PUBLIC src/)
 target_link_libraries(${PROJECT_NAME} PUBLIC
     clean-core
+    rich-log
     dxc-wrap
 )
 

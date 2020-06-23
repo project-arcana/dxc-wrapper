@@ -16,6 +16,8 @@
 #include <clean-core/capped_vector.hh>
 #include <clean-core/defer.hh>
 
+#include "common/log.hh"
+
 namespace
 {
 wchar_t const* get_profile_literal(dxcw::target target)
@@ -156,8 +158,8 @@ dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
     // IDxcCompiler3::Compile will always return an error buffer, but its length will be zero if there are no warnings or errors.
     if (pErrors != nullptr && pErrors->GetStringLength() != 0)
     {
-        fprintf(stderr, "shader \"%s\", entrypoint \"%s\":\n%s\n", //
-                opt_filename_for_errors, entrypoint, static_cast<char const*>(pErrors->GetBufferPointer()));
+        DXCW_LOG_ERROR("shader \"{}\", entrypoint \"{}\":", opt_filename_for_errors, entrypoint);
+        DXCW_LOG_ERROR("{}", static_cast<char const*>(pErrors->GetBufferPointer()));
     }
 
     // Quit on failure
@@ -165,7 +167,7 @@ dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
     result->GetStatus(&hrStatus);
     if (FAILED(hrStatus))
     {
-        fprintf(stderr, "compilation failed\n");
+        DXCW_LOG_ERROR("compilation failed");
         return binary{nullptr};
     }
 

@@ -10,6 +10,7 @@
 
 #include <clean-core/assert.hh>
 
+#include <dxc-wrapper/common/log.hh>
 #include <dxc-wrapper/compiler.hh>
 
 namespace
@@ -73,7 +74,7 @@ bool dxcw::write_binary_to_file(const dxcw::binary& binary, const char* path, co
 
     if (!outfile.good())
     {
-        std::fprintf(stderr, "Failed to write shader to %s.%s\n", path, ending);
+        DXCW_LOG_ERROR("failed to write shader to {}.{}", path, ending);
         return false;
     }
 
@@ -87,7 +88,7 @@ bool dxcw::compile_shader(dxcw::compiler& compiler, const char* source_path, con
     std::fstream in_file(source_path);
     if (!in_file.good())
     {
-        std::fprintf(stderr, "Failed to open input file at %s\n", source_path);
+        DXCW_LOG_ERROR("failed to open input file at {}", source_path);
         return false;
     }
     else
@@ -128,7 +129,7 @@ bool dxcw::compile_shader(dxcw::compiler& compiler, const char* source_path, con
 void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_file, shaderlist_compilation_result* out_results)
 {
     auto const f_onerror = [&]() -> void {
-        std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", shaderlist_file);
+            DXCW_LOG_ERROR("failed to open shaderlist file at {}", shaderlist_file);
         if (out_results)
             *out_results = {-1, 1};
     };
@@ -175,7 +176,7 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
             auto const pathin_absolute = std::filesystem::canonical(base_path_fs / pathin, ec);
             if (ec)
             {
-                std::fprintf(stderr, "ERROR: shader %s not found (line %d)\n", pathin.c_str(), num_lines);
+                DXCW_LOG_WARN("shader {} not found (shaderlist line {})", pathin.c_str(), num_lines);
                 ++num_errors;
                 continue;
             }
@@ -188,7 +189,8 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
         }
         else
         {
-            std::fprintf(stderr, "ERROR: failed to parse %s:%d:\n  %s\n\n", shaderlist_file, num_lines, line.c_str());
+            DXCW_LOG_WARN("failed to parse shaderlist line {}:", num_lines);
+            DXCW_LOG_WARN("\"{}\"", line.c_str());
             ++num_errors;
         }
     }
@@ -202,7 +204,7 @@ unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_en
     std::fstream in_file(shaderlist_file);
     if (!in_file.good())
     {
-        std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", shaderlist_file);
+        DXCW_LOG_ERROR("failed to open shaderlist file at {}", shaderlist_file);
         return unsigned(-1);
     }
 
@@ -210,7 +212,7 @@ unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_en
     auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_file).remove_filename(), ec);
     if (ec)
     {
-        std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", shaderlist_file);
+        DXCW_LOG_ERROR("failed to open shaderlist file at {}", shaderlist_file);
         return unsigned(-1);
     }
 
@@ -243,7 +245,7 @@ unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_en
             auto const pathin_absolute_fs = std::filesystem::canonical(base_path_fs / pathin, ec);
             if (ec)
             {
-                std::fprintf(stderr, "ERROR: shader %s not found (line %d)\n", pathin.c_str(), num_lines);
+                DXCW_LOG_WARN("shader {} not found (shaderlist line {})", pathin.c_str(), num_lines);
                 ++num_errors;
                 continue;
             }
@@ -263,7 +265,8 @@ unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_en
         }
         else
         {
-            std::fprintf(stderr, "ERROR: failed to parse %s:%d:\n  %s\n\n", shaderlist_file, num_lines, line.c_str());
+            DXCW_LOG_WARN("failed to parse shaderlist line {}:", num_lines);
+            DXCW_LOG_WARN("\"{}\"", line.c_str());
             ++num_errors;
         }
     }

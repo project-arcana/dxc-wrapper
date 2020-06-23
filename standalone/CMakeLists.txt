@@ -8,7 +8,12 @@ arcana_source_group(SOURCES)
 
 add_executable(dxc-wrapper-standalone ${SOURCES})
 target_include_directories(dxc-wrapper-standalone PUBLIC src/)
-target_link_libraries(dxc-wrapper-standalone PUBLIC dxc-wrapper)
+target_link_libraries(dxc-wrapper-standalone PUBLIC
+    dxc-wrapper
+    clean-core
+    nexus
+    rich-log
+)
 
 if (MSVC)
 
