@@ -117,19 +117,24 @@ private:
                         inotify_event* event = reinterpret_cast<inotify_event*>(&buffer[size_t(i)]);
                         if (event->len /*&& (event->mask & IN_CREATE || event->mask & IN_MODIFY)*/)
                         {
-                            auto const changedFile = std::filesystem::canonical(this->path / event->name);
+                            std::error_code ec;
+                            auto const changedFile = std::filesystem::canonical(this->path / event->name, ec);
 
-                            // Loop over every registered file
+                            if (!ec)
                             {
-                                std::lock_guard<std::mutex> lock(this->fileMutex);
-                                for (auto const& file : this->files)
-                                    if (changedFile == file.canonical_path)
-                                    {
-                                        file.rawPtr->mChanged.store(true, std::memory_order_release);
-                                        break;
-                                    }
+                                // Loop over every registered file
+                                {
+                                    std::lock_guard<std::mutex> lock(this->fileMutex);
+                                    for (auto const& file : this->files)
+                                        if (changedFile == file.canonical_path)
+                                        {
+                                            file.rawPtr->mChanged.store(true, std::memory_order_release);
+                                            break;
+                                        }
+                                }
                             }
                         }
+
                         i += sEventSize + event->len;
                     }
                 }
@@ -157,17 +162,21 @@ private:
                         // Loop over every entry in the fileInfo
                         for (;;)
                         {
-                            auto const changedFile = std::filesystem::canonical(this->path / std::wstring(fileInfo->FileName, fileInfo->FileNameLength / 2));
+                            std::error_code ec;
+                            auto const changedFile = std::filesystem::canonical(this->path / std::wstring(fileInfo->FileName, fileInfo->FileNameLength / 2), ec);
 
-                            // Loop over every registered file
+                            if (!ec)
                             {
-                                std::lock_guard<std::mutex> lock(this->fileMutex);
-                                for (auto const& file : this->files)
-                                    if (changedFile == file.canonical_path)
-                                    {
-                                        file.rawPtr->mChanged.store(true, std::memory_order_release);
-                                        // break;
-                                    }
+                                // Loop over every registered file
+                                {
+                                    std::lock_guard<std::mutex> lock(this->fileMutex);
+                                    for (auto const& file : this->files)
+                                        if (changedFile == file.canonical_path)
+                                        {
+                                            file.rawPtr->mChanged.store(true, std::memory_order_release);
+                                            // break;
+                                        }
+                                }
                             }
 
                             if (fileInfo->NextEntryOffset == 0)
@@ -312,7 +321,12 @@ void dxcw::FileWatch::onFlagDestruction(dxcw::FileWatch::Flag* flag)
 
 dxcw::FileWatch::SharedFlag dxcw::FileWatch::watchFile(char const* filename, bool forceUnique)
 {
-    auto const path = std::filesystem::canonical(filename);
+    std::error_code ec;
+    auto const path = std::filesystem::canonical(filename, ec);
+    if (ec)
+    {
+        return nullptr;
+    }
 
     if (!forceUnique)
     {
@@ -362,6 +376,7 @@ dxcw::FileWatch::SharedFlag dxcw::FileWatch::watchFile(char const* filename, boo
             }
         }
 
+        watcher->clear();
         return watcher;
     }
 }

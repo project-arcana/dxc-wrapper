@@ -102,44 +102,52 @@ bool dxcw::compile_shader(dxcw::compiler& compiler, const char* source_path, con
         }
         else
         {
+#ifdef CC_OS_WINDOWS
             auto dxil_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::dxil, optional_include_dir, false, source_path);
-            dxcw::write_binary_to_file(dxil_binary, output_path, "dxil");
 
-            if (dxil_binary.internal_blob != nullptr)
-            {
-                // only destroy and re-run if the first one worked
-                dxcw::destroy_blob(dxil_binary.internal_blob);
-
-                auto spv_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::spirv, optional_include_dir, false, source_path);
-                dxcw::write_binary_to_file(spv_binary, output_path, "spv");
-                dxcw::destroy_blob(spv_binary.internal_blob);
-                return true;
-            }
-            else
-            {
+            if (dxil_binary.internal_blob == nullptr)
                 return false;
-            }
+
+            dxcw::write_binary_to_file(dxil_binary, output_path, "dxil");
+            dxcw::destroy_blob(dxil_binary.internal_blob);
+#endif
+            // On non-windows, DXIL can be compiled but not signed which makes it mostly useless
+            // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
+
+            auto spv_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::spirv, optional_include_dir, false, source_path);
+            if (spv_binary.internal_blob == nullptr)
+                return false;
+
+            dxcw::write_binary_to_file(spv_binary, output_path, "spv");
+            dxcw::destroy_blob(spv_binary.internal_blob);
+            return true;
         }
     }
 }
 
 void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_file, shaderlist_compilation_result* out_results)
 {
+    auto const f_onerror = [&]() -> void {
+        std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", shaderlist_file);
+        if (out_results)
+            *out_results = {-1, 1};
+    };
+
     std::fstream in_file(shaderlist_file);
     if (!in_file.good())
     {
-        std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", shaderlist_file);
-
-        if (out_results)
-            *out_results = {-1, 1};
-
+        f_onerror();
         return;
     }
 
     // set the working directory to the folder containing the list this was invoked with
-    auto const prev_workdir = std::filesystem::current_path();
-    auto const base_path_fs = std::filesystem::absolute(std::filesystem::path(shaderlist_file).remove_filename());
-    std::filesystem::current_path(base_path_fs);
+    std::error_code ec;
+    auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_file).remove_filename(), ec);
+    if (ec)
+    {
+        f_onerror();
+        return;
+    }
 
     std::string line;
 
@@ -163,6 +171,15 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
 
         if (ss >> pathin && ss >> entrypoint && ss >> target && ss >> pathout)
         {
+            ec = {};
+            auto const pathin_absolute = std::filesystem::canonical(base_path_fs / pathin, ec);
+            if (ec)
+            {
+                std::fprintf(stderr, "ERROR: shader %s not found (line %d)\n", pathin.c_str(), num_lines);
+                ++num_errors;
+                continue;
+            }
+
             ++num_shaders;
             auto const success = compile_shader(compiler, pathin.c_str(), target.c_str(), entrypoint.c_str(), pathout.c_str());
 
@@ -175,9 +192,6 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
             ++num_errors;
         }
     }
-
-    // restore workdir
-    std::filesystem::current_path(prev_workdir);
 
     if (out_results)
         *out_results = {num_shaders, num_errors};
@@ -192,7 +206,13 @@ unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_en
         return unsigned(-1);
     }
 
-    auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_file).remove_filename());
+    std::error_code ec;
+    auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_file).remove_filename(), ec);
+    if (ec)
+    {
+        std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", shaderlist_file);
+        return unsigned(-1);
+    }
 
     std::string line;
 
@@ -219,14 +239,21 @@ unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_en
 
         if (ss >> pathin && ss >> entrypoint && ss >> target && ss >> pathout)
         {
+            ec.clear();
+            auto const pathin_absolute_fs = std::filesystem::canonical(base_path_fs / pathin, ec);
+            if (ec)
+            {
+                std::fprintf(stderr, "ERROR: shader %s not found (line %d)\n", pathin.c_str(), num_lines);
+                ++num_errors;
+                continue;
+            }
+
             if (num_shaders < max_num_out)
             {
                 auto& write_entry = out_entries[num_shaders];
-
-                auto const pathin_absolute = (base_path_fs / pathin).string();
                 auto const pathout_absolute = (base_path_fs / pathout).string();
                 std::strncpy(write_entry.pathin, pathin.c_str(), sizeof(write_entry.pathin));
-                std::strncpy(write_entry.pathin_absolute, pathin_absolute.c_str(), sizeof(write_entry.pathin_absolute));
+                std::strncpy(write_entry.pathin_absolute, pathin_absolute_fs.string().c_str(), sizeof(write_entry.pathin_absolute));
                 std::strncpy(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
                 std::strncpy(write_entry.target, target.c_str(), sizeof(write_entry.target));
                 std::strncpy(write_entry.entrypoint, entrypoint.c_str(), sizeof(write_entry.entrypoint));
@@ -248,7 +275,12 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
 {
     CC_ASSERT(out_include_entries != nullptr && max_num_out > 0 && "Output must not be empty");
 
-    auto const include_path_fs = std::filesystem::canonical(include_path);
+    std::error_code ec;
+    auto const include_path_fs = std::filesystem::canonical(include_path, ec);
+    if (ec)
+    {
+        return 0;
+    }
 
     unsigned num_includes = 0;
 
@@ -275,7 +307,14 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
             if (ss >> token1 && ss >> token2 && std::strcmp(token1.c_str(), "#include") == 0 && token2.length() > 2)
             {
                 // this line is formatted like an #include directive
-                auto const path_absolute = (include_path_fs / token2.substr(1, token2.length() - 2)).string();
+                ec.clear();
+                auto const path_absolute_fs = std::filesystem::canonical(include_path_fs / token2.substr(1, token2.length() - 2), ec);
+                if (ec)
+                {
+                    // include is invalid, silently fail (DXC will warn about this already)
+                    continue;
+                }
+                auto const path_absolute = path_absolute_fs.string();
 
                 // check if already existing
                 bool preexists = false;

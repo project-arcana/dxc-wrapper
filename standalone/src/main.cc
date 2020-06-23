@@ -64,32 +64,37 @@ int main(int argc, char const* argv[])
 
         char const* const arg_pathin = argv[2];
 
-        if (!std::fstream(arg_pathin).good())
-        {
-            std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", arg_pathin);
-            return 1;
-        }
-
         dxcw::compiler compiler;
         compiler.initialize();
 
         unsigned num_shaders = 0;
         dxcw::FileWatch::SharedFlag shaderlist_watch = dxcw::FileWatch::watchFile(arg_pathin);
+        if (!shaderlist_watch)
+        {
+            std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", arg_pathin);
+            return 1;
+        }
 
-        // set the working directory to the folder containing the list this was invoked with
-        auto const base_path_fs = std::filesystem::absolute(std::filesystem::path(arg_pathin).remove_filename()).string();
-
+        constexpr unsigned sc_max_num_includes = 10;
         struct auxilliary_watch_entry
         {
-            dxcw::FileWatch::SharedFlag flags[10];
-            dxcw::include_entry include_entries[10];
+            dxcw::FileWatch::SharedFlag main_flag;
+            dxcw::FileWatch::SharedFlag include_flags[sc_max_num_includes];
+            dxcw::include_entry include_entries[sc_max_num_includes];
             unsigned num_files = 0;
         };
 
         std::vector<dxcw::shaderlist_entry_owning> watch_entries;
-        std::vector<dxcw::FileWatch::SharedFlag> watch_flags;
-
         std::vector<auxilliary_watch_entry> watch_aux;
+
+        std::error_code ec;
+        auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(arg_pathin).remove_filename(), ec).string();
+
+        if (ec)
+        {
+            std::fprintf(stderr, "ERROR: failed to open shaderlist file at %s\n", arg_pathin);
+            return 1;
+        }
 
         auto const f_compile_entry = [&](dxcw::shaderlist_entry_owning const& entry) -> bool {
             auto const success
@@ -103,29 +108,42 @@ int main(int argc, char const* argv[])
             return success;
         };
 
-        auto const f_refresh_entries = [&]() -> bool {
+        auto const f_refresh_includes = [&](auxilliary_watch_entry& aux_entry, char const* shader_path) -> void {
+            aux_entry.num_files = dxcw::parse_includes(shader_path, base_path_fs.c_str(), aux_entry.include_entries, sc_max_num_includes);
+
+            for (auto j = 0u; j < aux_entry.num_files; ++j)
+            {
+                aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.include_entries[j].includepath_absolute);
+            }
+            for (auto j = aux_entry.num_files; j < sc_max_num_includes; ++j)
+            {
+                aux_entry.include_flags[j] = nullptr;
+            }
+        };
+
+        auto const f_refresh_all_entries = [&]() -> bool {
             num_shaders = dxcw::parse_shaderlist(arg_pathin, nullptr, 0);
             if (num_shaders == unsigned(-1))
                 return false;
 
             watch_entries.resize(num_shaders);
-            watch_flags.resize(num_shaders);
+            watch_aux.resize(num_shaders);
 
-            dxcw::parse_shaderlist(arg_pathin, watch_entries.data(), watch_entries.size());
+            num_shaders = dxcw::parse_shaderlist(arg_pathin, watch_entries.data(), unsigned(watch_entries.size()));
             for (auto i = 0u; i < num_shaders; ++i)
             {
-                // create file watch
-                watch_flags[i] = dxcw::FileWatch::watchFile(watch_entries[i].pathin_absolute);
-                watch_flags[i]->clear();
-
-                //
+                // recreate main watch flag
+                watch_aux[i].main_flag = dxcw::FileWatch::watchFile(watch_entries[i].pathin_absolute);
+                // refresh include flags
+                f_refresh_includes(watch_aux[i], watch_entries[i].pathin_absolute);
+                // compile
                 f_compile_entry(watch_entries[i]);
             }
 
             return true;
         };
 
-        f_refresh_entries();
+        f_refresh_all_entries();
 
         printf("\nwatching shaderlist file at %s\n", base_path_fs.c_str());
         // clear initial watch
@@ -142,7 +160,7 @@ int main(int argc, char const* argv[])
                 printf("shaderlist file changed, recompiling all shaders\n");
 
                 // changes in shaderlist - refresh
-                if (!f_refresh_entries())
+                if (!f_refresh_all_entries())
                     return 1;
 
                 shaderlist_watch->clear();
@@ -152,11 +170,27 @@ int main(int argc, char const* argv[])
 
             for (auto i = 0u; i < num_shaders; ++i)
             {
-                if (watch_flags[i]->isChanged())
+                auto& entry = watch_aux[i];
+
+                if (entry.main_flag->isChanged())
                 {
-                    // recompile just this file
+                    // main file changed, refresh includes and recompile
+                    f_refresh_includes(watch_aux[i], watch_entries[i].pathin_absolute);
                     f_compile_entry(watch_entries[i]);
-                    watch_flags[i]->clear();
+                    entry.main_flag->clear();
+                }
+                else
+                {
+                    for (auto j = 0u; j < entry.num_files; ++j)
+                    {
+                        if (entry.include_flags[j]->isChanged())
+                        {
+                            // single include changed, refresh includes and recompile
+                            f_refresh_includes(entry, watch_entries[i].pathin_absolute);
+                            f_compile_entry(watch_entries[i]);
+                            break;
+                        }
+                    }
                 }
             }
         }
