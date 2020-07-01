@@ -1,10 +1,9 @@
 #include "entry.hh"
 
+#include <csignal>
 #include <cstdio>
 #include <filesystem>
 #include <thread>
-
-#include <signal.h>
 
 #include <nexus/args.hh>
 
@@ -161,7 +160,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path)
     // clear initial watch
     shaderlist_watch->clear();
 
-    ::signal(SIGINT, interrupt_handler);
+    std::signal(SIGINT, interrupt_handler);
     while (gv_keep_running)
     {
         // sleep
