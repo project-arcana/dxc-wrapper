@@ -157,13 +157,15 @@ private:
                         continue;
 
                     FILE_NOTIFY_INFORMATION* fileInfo = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(&buffer[0]);
-                    if (fileInfo->Action == FILE_ACTION_MODIFIED)
+
+                    // Loop over every entry in the fileInfo
+                    for (;;)
                     {
-                        // Loop over every entry in the fileInfo
-                        for (;;)
+                        if (fileInfo->Action == FILE_ACTION_MODIFIED)
                         {
                             std::error_code ec;
-                            auto const changedFile = std::filesystem::canonical(this->path / std::wstring(fileInfo->FileName, fileInfo->FileNameLength / 2), ec);
+                            auto const changedFile
+                                = std::filesystem::canonical(this->path / std::wstring(fileInfo->FileName, fileInfo->FileNameLength / 2), ec);
 
                             if (!ec)
                             {
@@ -178,12 +180,12 @@ private:
                                         }
                                 }
                             }
-
-                            if (fileInfo->NextEntryOffset == 0)
-                                break;
-
-                            fileInfo = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(reinterpret_cast<BYTE*>(fileInfo) + fileInfo->NextEntryOffset);
                         }
+
+                        if (fileInfo->NextEntryOffset == 0)
+                            break;
+
+                        fileInfo = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(reinterpret_cast<BYTE*>(fileInfo) + fileInfo->NextEntryOffset);
                     }
                 }
 #endif
