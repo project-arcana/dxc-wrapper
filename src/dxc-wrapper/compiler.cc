@@ -12,6 +12,7 @@
 
 #include <dxc/dxcapi.h>
 
+#include <clean-core/array.hh>
 #include <clean-core/assert.hh>
 #include <clean-core/capped_vector.hh>
 #include <clean-core/defer.hh>
@@ -71,9 +72,10 @@ dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
                                             const char* entrypoint,
                                             dxcw::target target,
                                             dxcw::output output,
-                                            char const* opt_additional_include_paths,
                                             bool build_debug_info,
-                                            const char* opt_filename_for_errors)
+                                            char const* opt_additional_include_paths,
+                                            char const* opt_filename_for_errors,
+                                            char const* opt_defines)
 {
 #define DEFER_RELEASE(_ptr_)  \
     CC_DEFER                  \
@@ -91,7 +93,7 @@ dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
     DEFER_RELEASE(encoding);
     _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
 
-    cc::capped_vector<LPCWSTR, 24> compile_arguments;
+    cc::capped_vector<LPCWSTR, 26> compile_arguments;
 
     if (output == output::spirv)
     {
@@ -135,6 +137,17 @@ dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
     // profile target
     compile_arguments.push_back(L"-T");
     compile_arguments.push_back(get_profile_literal(target));
+
+    // defines
+    cc::array<wchar_t> define_text;
+    if (opt_defines != nullptr)
+    {
+        define_text = cc::array<wchar_t>::uninitialized(std::strlen(opt_defines));
+        cc::char_to_widechar(define_text, opt_defines);
+
+        compile_arguments.push_back(L"-D");
+        compile_arguments.push_back(define_text.data());
+    }
 
     DxcBuffer source_buffer;
     source_buffer.Ptr = raw_text;

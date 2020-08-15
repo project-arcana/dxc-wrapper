@@ -104,7 +104,7 @@ bool dxcw::compile_shader(dxcw::compiler& compiler, const char* source_path, con
         else
         {
 #ifdef CC_OS_WINDOWS
-            auto dxil_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::dxil, optional_include_dir, false, source_path);
+            auto dxil_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::dxil, false, optional_include_dir, source_path);
 
             if (dxil_binary.internal_blob == nullptr)
                 return false;
@@ -115,7 +115,7 @@ bool dxcw::compile_shader(dxcw::compiler& compiler, const char* source_path, con
             // On non-windows, DXIL can be compiled but not signed which makes it mostly useless
             // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
 
-            auto spv_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::spirv, optional_include_dir, false, source_path);
+            auto spv_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::spirv, false, optional_include_dir, source_path);
             if (spv_binary.internal_blob == nullptr)
                 return false;
 
