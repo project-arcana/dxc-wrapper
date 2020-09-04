@@ -1,5 +1,7 @@
 #include <nexus/args.hh>
 
+#include <clean-core/native/win32_util.hh>
+
 #include <rich-log/logger.hh>
 
 #include <dxc-wrapper/common/log.hh>
@@ -8,7 +10,7 @@
 
 int main(int argc, char const* argv[])
 {
-    rlog::enable_win32_colors();
+    cc::win32_enable_console_colors();
     // rlog::set_console_log_style(rlog::console_log_style::brief);
 
     bool is_watch_mode = false;
