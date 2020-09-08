@@ -8,21 +8,29 @@
 #include <sstream>
 #include <type_traits>
 
+#include <clean-core/alloc_array.hh>
 #include <clean-core/assert.hh>
 
 #include <dxc-wrapper/common/log.hh>
+#include <dxc-wrapper/common/tinyjson.hh>
 #include <dxc-wrapper/compiler.hh>
 
 namespace
 {
-std::string readall(std::istream& in)
+cc::alloc_array<char> read_file(char const* path, cc::allocator* alloc)
 {
-    std::string ret;
-    char buffer[4096];
-    while (in.read(buffer, sizeof(buffer)))
-        ret.append(buffer, sizeof(buffer));
-    ret.append(buffer, size_t(in.gcount()));
-    return ret;
+    std::FILE* fp = std::fopen(path, "rb");
+    if (!fp)
+        return {};
+
+    std::fseek(fp, 0, SEEK_END);
+    auto res = cc::alloc_array<char>::uninitialized(std::ftell(fp) + 1, alloc);
+    std::rewind(fp);
+    std::fread(&res[0], 1, res.size() - 1, fp);
+    std::fclose(fp);
+
+    res[res.size() - 1] = '\0';
+    return res;
 }
 
 bool parse_target(char const* str, dxcw::target& out_tgt)
@@ -83,62 +91,108 @@ bool dxcw::write_binary_to_file(const dxcw::binary& binary, const char* path, co
     return true;
 }
 
-bool dxcw::compile_shader(dxcw::compiler& compiler, const char* source_path, const char* shader_target, const char* entrypoint, const char* output_path, const char* optional_include_dir)
+bool dxcw::compile_shader(dxcw::compiler& compiler,
+                          const char* source_path,
+                          const char* shader_target,
+                          const char* entrypoint,
+                          const char* output_path,
+                          const char* optional_include_dir,
+                          cc::allocator* scratch_alloc)
 {
-    std::fstream in_file(source_path);
-    if (!in_file.good())
+    auto const content = read_file(source_path, scratch_alloc);
+
+    if (content.empty())
     {
-        DXCW_LOG_ERROR("failed to open input file at {}", source_path);
+        DXCW_LOG_ERROR("failed to open shader source file at {}", source_path);
         return false;
     }
-    else
+
+    dxcw::target parsed_target;
+    if (!parse_target(shader_target, parsed_target))
     {
-        auto const content = readall(in_file);
-
-
-        dxcw::target parsed_target;
-        if (!parse_target(shader_target, parsed_target))
-        {
-            return false;
-        }
-        else
-        {
-#ifdef CC_OS_WINDOWS
-            auto dxil_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::dxil, false, optional_include_dir, source_path);
-
-            if (dxil_binary.internal_blob == nullptr)
-                return false;
-
-            dxcw::write_binary_to_file(dxil_binary, output_path, "dxil");
-            dxcw::destroy_blob(dxil_binary.internal_blob);
-#endif
-            // On non-windows, DXIL can be compiled but not signed which makes it mostly useless
-            // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
-
-            auto spv_binary = compiler.compile_binary(content.c_str(), entrypoint, parsed_target, dxcw::output::spirv, false, optional_include_dir, source_path);
-            if (spv_binary.internal_blob == nullptr)
-                return false;
-
-            dxcw::write_binary_to_file(spv_binary, output_path, "spv");
-            dxcw::destroy_blob(spv_binary.internal_blob);
-            return true;
-        }
+        return false;
     }
+
+#ifdef CC_OS_WINDOWS
+    auto dxil_binary = compiler.compile_binary(content.data(), entrypoint, parsed_target, dxcw::output::dxil, false, optional_include_dir,
+                                               source_path, nullptr, scratch_alloc);
+
+    if (dxil_binary.internal_blob == nullptr)
+        return false;
+
+    dxcw::write_binary_to_file(dxil_binary, output_path, "dxil");
+    dxcw::destroy_blob(dxil_binary.internal_blob);
+#endif
+    // On non-windows, DXIL can be compiled but not signed which makes it mostly useless
+    // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
+
+    auto spv_binary = compiler.compile_binary(content.data(), entrypoint, parsed_target, dxcw::output::spirv, false, optional_include_dir,
+                                              source_path, nullptr, scratch_alloc);
+    if (spv_binary.internal_blob == nullptr)
+        return false;
+
+    dxcw::write_binary_to_file(spv_binary, output_path, "spv");
+    dxcw::destroy_blob(spv_binary.internal_blob);
+    return true;
 }
 
-void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_file, shaderlist_compilation_result* out_results)
+bool dxcw::compile_library(dxcw::compiler& compiler,
+                           const char* source_path,
+                           cc::span<const library_export> exports,
+                           const char* output_path,
+                           const char* optional_include_dir,
+                           cc::allocator* scratch_alloc)
+{
+    if (exports.empty())
+    {
+        DXCW_LOG_WARN("skipping compilation of library without exports at {}", source_path);
+        return false;
+    }
+
+    auto const content = read_file(source_path, scratch_alloc);
+
+    if (content.empty())
+    {
+        DXCW_LOG_ERROR("failed to open library source file at {}", source_path);
+        return false;
+    }
+
+#ifdef CC_OS_WINDOWS
+    auto dxil_binary = compiler.compile_library(content.data(), exports, dxcw::output::dxil, false, optional_include_dir, source_path, nullptr, scratch_alloc);
+
+    if (dxil_binary.internal_blob == nullptr)
+        return false;
+
+    dxcw::write_binary_to_file(dxil_binary, output_path, "dxil");
+    dxcw::destroy_blob(dxil_binary.internal_blob);
+#endif
+    // On non-windows, DXIL can be compiled but not signed which makes it mostly useless
+    // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
+
+    auto spv_binary = compiler.compile_library(content.data(), exports, dxcw::output::spirv, false, optional_include_dir, source_path, nullptr, scratch_alloc);
+    if (spv_binary.internal_blob == nullptr)
+        return false;
+
+    dxcw::write_binary_to_file(spv_binary, output_path, "spv");
+    dxcw::destroy_blob(spv_binary.internal_blob);
+    return true;
+}
+
+
+bool dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_file, shaderlist_compilation_result* out_results, cc::allocator* scratch_alloc)
 {
     auto const f_onerror = [&]() -> void {
         DXCW_LOG_ERROR("failed to open shaderlist file at {}", shaderlist_file);
         if (out_results)
-            *out_results = {-1, 1};
+            *out_results = {-1, -1, 1};
     };
 
-    std::fstream in_file(shaderlist_file);
+
+    std::ifstream in_file(shaderlist_file);
     if (!in_file.good())
     {
         f_onerror();
-        return;
+        return false;
     }
 
     // set the working directory to the folder containing the list this was invoked with
@@ -147,7 +201,7 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
     if (ec)
     {
         f_onerror();
-        return;
+        return false;
     }
 
     auto const base_path_string = base_path_fs.string();
@@ -184,8 +238,8 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
             }
 
             ++num_shaders;
-            auto const success = compile_shader(compiler, pathin_absolute.string().c_str(), target.c_str(), entrypoint.c_str(), pathout.c_str(),
-                                                base_path_string.c_str());
+            auto const success = compile_shader(compiler, pathin_absolute.string().c_str(), target.c_str(), entrypoint.c_str(),
+                                                (base_path_fs / pathout).string().c_str(), base_path_string.c_str(), scratch_alloc);
 
             if (!success)
                 ++num_errors;
@@ -199,10 +253,235 @@ void dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
     }
 
     if (out_results)
-        *out_results = {num_shaders, num_errors};
+        *out_results = {num_shaders, 0, num_errors};
+
+    return true;
 }
 
-unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_entry_owning* out_entries, unsigned max_num_out)
+bool dxcw::compile_shaderlist_json(dxcw::compiler& compiler, const char* json_file, dxcw::shaderlist_compilation_result* out_results, cc::allocator* scratch_alloc)
+{
+    auto content = read_file(json_file, scratch_alloc);
+    if (content.empty())
+    {
+        DXCW_LOG_ERROR("failed to open shaderlist json file at {}", json_file);
+        return false;
+    }
+
+    // set the working directory to the folder containing the list this was invoked with
+    std::error_code ec;
+    auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(json_file).remove_filename(), ec);
+    if (ec)
+    {
+        DXCW_LOG_ERROR("failed to make path canonical for shaderlist json file at {}", json_file);
+        return false;
+    }
+
+    auto const base_path_string = base_path_fs.string();
+    cc::alloc_array<json_t> json_nodes(512, scratch_alloc);
+
+    json_t const* const j_root = json_create(content.data(), json_nodes.data(), unsigned(json_nodes.size()));
+    if (j_root == nullptr || j_root->type != JSON_OBJ)
+    {
+        DXCW_LOG_ERROR("fatal json parse error in shaderlist json {} ({} chars)", json_file, content.size());
+        return false;
+    }
+
+    json_t const* j_entries_arr = json_getProperty(j_root, "entries");
+    unsigned num_valid_entries = 0;
+    unsigned num_entries = 0;
+    int num_shaders = 0;
+    int num_libraries = 0;
+    int num_errors = 0;
+
+    auto const f_get_string_prop = [](json_t const* node, char const* property_name) -> char const* {
+        if (!node)
+            return nullptr;
+        auto const prop = json_getProperty(node, property_name);
+        if (!prop || prop->type != JSON_TEXT)
+            return nullptr;
+        return json_getValue(prop);
+    };
+
+    if (j_entries_arr == nullptr)
+    {
+        DXCW_LOG_ERROR("missing root property \"entries\"");
+        goto l_parse_error;
+    }
+
+    if (json_getType(j_entries_arr) != JSON_ARRAY)
+    {
+        DXCW_LOG_ERROR("root property \"entries\" must be an array");
+        goto l_parse_error;
+    }
+
+    // loop over all entry nodes in "entries": [ ... ] array
+    for (json_t const* j_entry = json_getChild(j_entries_arr); j_entry; j_entry = json_getSibling(j_entry))
+    {
+        ++num_entries;
+        if (json_getType(j_entry) != JSON_OBJ)
+        {
+            DXCW_LOG_WARN("skipping non-object element #{} in \"entries\" array", num_entries);
+            continue;
+        }
+
+        char const* const str_source = f_get_string_prop(j_entry, "source");
+        if (!str_source)
+        {
+            DXCW_LOG_WARN("skipping entry #{} without required \"source\" property", num_entries);
+            continue;
+        }
+
+        // "canonize" path - ie. make it absolute and check if the file exists
+        ec = {};
+        auto const pathin_absolute = std::filesystem::canonical(base_path_fs / str_source, ec);
+        if (ec)
+        {
+            DXCW_LOG_WARN("shader source {} not found (shader json entry #{})", str_source, num_entries);
+            ++num_errors;
+            continue;
+        }
+
+        ++num_valid_entries;
+
+        json_t const* const jp_binaries = json_getProperty(j_entry, "binaries");
+        if (jp_binaries)
+        {
+            if (json_getType(jp_binaries) != JSON_ARRAY)
+            {
+                DXCW_LOG_WARN("entry #{} property \"binaries\" is not an array", num_entries);
+            }
+            else
+            {
+                unsigned num_bins = 0;
+                for (json_t const* j_bin = json_getChild(jp_binaries); j_bin; j_bin = json_getSibling(j_bin))
+                {
+                    ++num_bins;
+                    char const* const str_target = f_get_string_prop(j_bin, "target");
+                    char const* const str_entrypoint = f_get_string_prop(j_bin, "entrypoint");
+                    char const* const str_output = f_get_string_prop(j_bin, "output");
+                    if (!str_target || !str_entrypoint || !str_output)
+                    {
+                        DXCW_LOG_WARN("skipping binary #{} on entry #{} without required \"target\", \"entrypoint\", or \"output\" text properties",
+                                      num_bins, num_entries);
+                        continue;
+                    }
+
+                    // all good, compile the shader binary
+                    ++num_shaders;
+                    auto const success = compile_shader(compiler, pathin_absolute.string().c_str(), str_target, str_entrypoint, str_output,
+                                                        base_path_string.c_str(), scratch_alloc);
+
+                    if (!success)
+                        ++num_errors;
+                }
+            }
+        }
+
+        json_t const* const jp_library = json_getProperty(j_entry, "library");
+        if (jp_library)
+        {
+            if (json_getType(jp_library) != JSON_OBJ)
+            {
+                DXCW_LOG_WARN("entry #{} property \"library\" is not an object", num_entries);
+            }
+            else
+            {
+                char const* const str_output = f_get_string_prop(jp_library, "output");
+                if (!str_output)
+                {
+                    DXCW_LOG_WARN("skipping library on entry #{} which lacks required \"output\" text property", num_entries);
+                    continue;
+                }
+
+                constexpr dxcw::target lc_targets[] = {target::raygeneration, target::miss, target::closesthit, target::intersection, target::anyhit};
+                constexpr char const* lc_target_strings[] = {"raygeneration", "miss", "closesthit", "intersection", "anyhit"};
+                constexpr unsigned lc_num_targets = sizeof(lc_targets) / sizeof(lc_targets[0]);
+
+                // determine the total amount of exports
+                unsigned num_exports = 0;
+                for (auto i = 0u; i < lc_num_targets; ++i)
+                {
+                    auto const jp_target = json_getProperty(jp_library, lc_target_strings[i]);
+                    if (!jp_target)
+                        continue;
+
+                    if (jp_target->type == JSON_TEXT)
+                    {
+                        ++num_exports;
+                    }
+                    else if (jp_target->type == JSON_ARRAY)
+                    {
+                        for (auto const* jp_tgt_entry = json_getChild(jp_target); jp_tgt_entry; jp_tgt_entry = json_getSibling(jp_tgt_entry))
+                        {
+                            if (jp_tgt_entry->type == JSON_TEXT)
+                                ++num_exports;
+                        }
+                    }
+                    else
+                    {
+                        DXCW_LOG_WARN("library property \"{}\" on entry {} is not an array or a string", lc_target_strings[i], num_entries);
+                        continue;
+                    }
+                }
+
+                if (num_exports == 0)
+                {
+                    DXCW_LOG_WARN("skipping library on entry #{} which specifies no exports", num_entries);
+                    continue;
+                }
+
+                // allocate and extract entries
+                auto export_array = cc::alloc_array<dxcw::library_export>::uninitialized(num_exports, scratch_alloc);
+                unsigned export_array_cursor = 0;
+
+                auto const f_add_export = [&](unsigned target_i, char const* string) {
+                    export_array[export_array_cursor] = library_export{lc_targets[target_i], string};
+                    ++export_array_cursor;
+                };
+
+                for (auto i = 0u; i < lc_num_targets; ++i)
+                {
+                    auto const jp_target = json_getProperty(jp_library, lc_target_strings[i]);
+                    if (!jp_target)
+                        continue;
+
+                    if (jp_target->type == JSON_TEXT)
+                    {
+                        f_add_export(i, jp_target->u.value);
+                    }
+                    else if (jp_target->type == JSON_ARRAY)
+                    {
+                        for (auto const* jp_tgt_entry = json_getChild(jp_target); jp_tgt_entry; jp_tgt_entry = json_getSibling(jp_tgt_entry))
+                        {
+                            if (jp_tgt_entry->type == JSON_TEXT)
+                                f_add_export(i, jp_tgt_entry->u.value);
+                        }
+                    }
+                }
+
+                // all good, compile the library
+                ++num_libraries;
+                auto const success = compile_library(compiler, pathin_absolute.string().c_str(), export_array,
+                                                     (base_path_fs / str_output).string().c_str(), base_path_string.c_str(), scratch_alloc);
+
+                if (!success)
+                    ++num_errors;
+            }
+        }
+    }
+
+    if (out_results)
+    {
+        *out_results = {num_shaders, num_libraries, num_errors};
+    }
+    return true;
+
+l_parse_error:
+    DXCW_LOG_ERROR("parse error in json shader list {}", json_file);
+    return false;
+}
+
+unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_binary_entry_owning* out_entries, unsigned max_num_out)
 {
     std::fstream in_file(shaderlist_file);
     if (!in_file.good())
@@ -275,6 +554,262 @@ unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_en
     }
 
     return num_shaders;
+}
+
+bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
+                                 cc::span<dxcw::shaderlist_binary_entry_owning> out_binaries,
+                                 unsigned& out_num_binaries,
+                                 cc::span<dxcw::shaderlist_library_entry_owning> out_libraries,
+                                 unsigned& out_num_libraries,
+                                 cc::allocator* scratch_alloc)
+{
+    auto content = read_file(shaderlist_file, scratch_alloc);
+    if (content.empty())
+    {
+        DXCW_LOG_ERROR("failed to open shaderlist json file at {}", shaderlist_file);
+        return false;
+    }
+
+    // set the working directory to the folder containing the list this was invoked with
+    std::error_code ec;
+    auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_file).remove_filename(), ec);
+    if (ec)
+    {
+        DXCW_LOG_ERROR("failed to make path canonical for shaderlist json file at {}", shaderlist_file);
+        return false;
+    }
+
+    auto const base_path_string = base_path_fs.string();
+    cc::alloc_array<json_t> json_nodes(512, scratch_alloc);
+
+    json_t const* const j_root = json_create(content.data(), json_nodes.data(), unsigned(json_nodes.size()));
+    if (j_root == nullptr || j_root->type != JSON_OBJ)
+    {
+        DXCW_LOG_ERROR("fatal json parse error in shaderlist json {} ({} chars)", shaderlist_file, content.size());
+        return false;
+    }
+
+    json_t const* j_entries_arr = json_getProperty(j_root, "entries");
+    unsigned num_valid_entries = 0;
+    unsigned num_entries = 0;
+    out_num_binaries = 0;
+    out_num_libraries = 0;
+    int num_errors = 0;
+
+    auto const f_get_string_prop = [](json_t const* node, char const* property_name) -> char const* {
+        if (!node)
+            return nullptr;
+        auto const prop = json_getProperty(node, property_name);
+        if (!prop || prop->type != JSON_TEXT)
+            return nullptr;
+        return json_getValue(prop);
+    };
+
+    if (j_entries_arr == nullptr)
+    {
+        DXCW_LOG_ERROR("missing root property \"entries\"");
+        goto l_parse_error;
+    }
+    if (json_getType(j_entries_arr) != JSON_ARRAY)
+    {
+        DXCW_LOG_ERROR("root property \"entries\" must be an array");
+        goto l_parse_error;
+    }
+
+    // loop over all entry nodes in "entries": [ ... ] array
+    for (json_t const* j_entry = json_getChild(j_entries_arr); j_entry; j_entry = json_getSibling(j_entry))
+    {
+        ++num_entries;
+        if (json_getType(j_entry) != JSON_OBJ)
+        {
+            DXCW_LOG_WARN("skipping non-object element #{} in \"entries\" array", num_entries);
+            ++num_errors;
+            continue;
+        }
+
+        char const* const str_source = f_get_string_prop(j_entry, "source");
+        if (!str_source)
+        {
+            DXCW_LOG_WARN("skipping entry #{} without required \"source\" property", num_entries);
+            ++num_errors;
+            continue;
+        }
+
+        // "canonize" path - ie. make it absolute and check if the file exists
+        ec = {};
+        auto const pathin_absolute = std::filesystem::canonical(base_path_fs / str_source, ec);
+        if (ec)
+        {
+            DXCW_LOG_WARN("shader source {} not found (shader json entry #{})", str_source, num_entries);
+            ++num_errors;
+            continue;
+        }
+
+        ++num_valid_entries;
+
+        json_t const* const jp_binaries = json_getProperty(j_entry, "binaries");
+        if (jp_binaries)
+        {
+            if (json_getType(jp_binaries) != JSON_ARRAY)
+            {
+                DXCW_LOG_WARN("entry #{} property \"binaries\" is not an array", num_entries);
+                ++num_errors;
+            }
+            else
+            {
+                unsigned num_bins = 0;
+                for (json_t const* j_bin = json_getChild(jp_binaries); j_bin; j_bin = json_getSibling(j_bin))
+                {
+                    ++num_bins;
+                    char const* const str_target = f_get_string_prop(j_bin, "target");
+                    char const* const str_entrypoint = f_get_string_prop(j_bin, "entrypoint");
+                    char const* const str_output = f_get_string_prop(j_bin, "output");
+                    if (!str_target || !str_entrypoint || !str_output)
+                    {
+                        DXCW_LOG_WARN("skipping binary #{} on entry #{} without required \"target\", \"entrypoint\", or \"output\" text properties",
+                                      num_bins, num_entries);
+                        ++num_errors;
+                        continue;
+                    }
+
+                    // all good, write the shader binary info
+                    if (out_num_binaries < out_binaries.size())
+                    {
+                        auto& write_entry = out_binaries[out_num_binaries];
+                        auto const pathout_absolute = (base_path_fs / str_output).string();
+
+                        std::strncpy(write_entry.pathin, str_source, sizeof(write_entry.pathin));
+                        std::strncpy(write_entry.pathin_absolute, pathin_absolute.string().c_str(), sizeof(write_entry.pathin_absolute));
+                        std::strncpy(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
+                        std::strncpy(write_entry.target, str_target, sizeof(write_entry.target));
+                        std::strncpy(write_entry.entrypoint, str_entrypoint, sizeof(write_entry.entrypoint));
+                    }
+
+                    ++out_num_binaries;
+                }
+            }
+        }
+
+        json_t const* const jp_library = json_getProperty(j_entry, "library");
+        if (jp_library)
+        {
+            if (json_getType(jp_library) != JSON_OBJ)
+            {
+                DXCW_LOG_WARN("entry #{} property \"library\" is not an object", num_entries);
+                ++num_errors;
+            }
+            else
+            {
+                char const* const str_output = f_get_string_prop(jp_library, "output");
+                if (!str_output)
+                {
+                    DXCW_LOG_WARN("skipping library on entry #{} which lacks required \"output\" text property", num_entries);
+                    ++num_errors;
+                    continue;
+                }
+
+                constexpr dxcw::target lc_targets[] = {target::raygeneration, target::miss, target::closesthit, target::intersection, target::anyhit};
+                constexpr char const* lc_target_strings[] = {"raygeneration", "miss", "closesthit", "intersection", "anyhit"};
+                constexpr unsigned lc_num_targets = sizeof(lc_targets) / sizeof(lc_targets[0]);
+
+                // determine the total amount of exports
+                unsigned num_exports = 0;
+                for (auto i = 0u; i < lc_num_targets; ++i)
+                {
+                    auto const jp_target = json_getProperty(jp_library, lc_target_strings[i]);
+                    if (!jp_target)
+                        continue;
+
+                    if (jp_target->type == JSON_TEXT)
+                    {
+                        ++num_exports;
+                    }
+                    else if (jp_target->type == JSON_ARRAY)
+                    {
+                        for (auto const* jp_tgt_entry = json_getChild(jp_target); jp_tgt_entry; jp_tgt_entry = json_getSibling(jp_tgt_entry))
+                        {
+                            if (jp_tgt_entry->type == JSON_TEXT)
+                                ++num_exports;
+                        }
+                    }
+                    else
+                    {
+                        DXCW_LOG_WARN("library property \"{}\" on entry {} is not an array or a string", lc_target_strings[i], num_entries);
+                        ++num_errors;
+                        continue;
+                    }
+                }
+
+                if (num_exports == 0)
+                {
+                    DXCW_LOG_WARN("skipping library on entry #{} which specifies no exports", num_entries);
+                    ++num_errors;
+                    continue;
+                }
+
+                if (num_exports > (sizeof(shaderlist_library_entry_owning::export_targets)))
+                {
+                    DXCW_LOG_WARN("too many exports specified in library of entry #{}", num_entries);
+                    ++num_errors;
+                    continue;
+                }
+
+                if (out_num_libraries < out_libraries.size())
+                {
+                    auto& write_entry = out_libraries[out_num_libraries];
+                    auto const pathout_absolute = (base_path_fs / str_output).string();
+
+                    std::strncpy(write_entry.pathin, str_source, sizeof(write_entry.pathin));
+                    std::strncpy(write_entry.pathin_absolute, pathin_absolute.string().c_str(), sizeof(write_entry.pathin_absolute));
+                    std::strncpy(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
+                    write_entry.num_exports = uint8_t(num_exports);
+
+                    unsigned exports_cursor = 0;
+                    unsigned exports_strbuf_cursor = 0;
+
+                    // extract entries
+
+                    auto const f_add_export = [&](unsigned target_i, char const* string) {
+                        char const* const written_string = std::strncpy(write_entry.entrypoint_buffer + exports_strbuf_cursor, string,
+                                                                        sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+                        write_entry.exports_entrypoints[exports_cursor] = written_string;
+                        write_entry.export_targets[exports_cursor] = static_cast<uint8_t>(lc_targets[target_i]);
+
+                        exports_strbuf_cursor += std::strlen(written_string) + 1;
+                        ++exports_cursor;
+                    };
+
+                    for (auto i = 0u; i < lc_num_targets; ++i)
+                    {
+                        auto const jp_target = json_getProperty(jp_library, lc_target_strings[i]);
+                        if (!jp_target)
+                            continue;
+
+                        if (jp_target->type == JSON_TEXT)
+                        {
+                            f_add_export(i, jp_target->u.value);
+                        }
+                        else if (jp_target->type == JSON_ARRAY)
+                        {
+                            for (auto const* jp_tgt_entry = json_getChild(jp_target); jp_tgt_entry; jp_tgt_entry = json_getSibling(jp_tgt_entry))
+                            {
+                                if (jp_tgt_entry->type == JSON_TEXT)
+                                    f_add_export(i, jp_tgt_entry->u.value);
+                            }
+                        }
+                    }
+                }
+
+                ++out_num_libraries;
+            }
+        }
+    }
+
+    return true;
+
+l_parse_error:
+    DXCW_LOG_ERROR("parse error in json shader list {}", shaderlist_file);
+    return false;
 }
 
 unsigned dxcw::parse_includes(const char* source_path, const char* include_path, dxcw::include_entry* out_include_entries, unsigned max_num_out)

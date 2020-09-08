@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <clean-core/fwd.hh>
+
 struct IDxcBlob;
 struct IDxcLibrary;
 struct IDxcCompiler3;
@@ -20,7 +22,10 @@ struct binary
     size_t size = 0;
 };
 
-enum class target
+void destroy_blob(IDxcBlob* blob);
+void destroy(binary const& b);
+
+enum class target : uint8_t
 {
     vertex,
     hull,
@@ -28,18 +33,30 @@ enum class target
     geometry,
     pixel,
 
-    compute
+    compute,
+
+    raygeneration,
+    intersection,
+    anyhit,
+    closesthit,
+    miss,
+
+    callable,
+    mesh,
+    amplification
 };
 
-enum class output
+enum class output : uint8_t
 {
     dxil,
     spirv
 };
 
-void destroy_blob(IDxcBlob* blob);
-
-inline void destroy(binary const& b) { destroy_blob(b.internal_blob); }
+struct library_export
+{
+    target type;
+    char const* entrypoint;
+};
 
 struct compiler
 {
@@ -66,7 +83,17 @@ public:
                                         bool build_debug_info = false,
                                         char const* opt_additional_include_paths = nullptr,
                                         char const* opt_filename_for_errors = nullptr,
-                                        char const* opt_defines = nullptr);
+                                        char const* opt_defines = nullptr,
+                                        cc::allocator* scratch_alloc = cc::system_allocator);
+
+    [[nodiscard]] binary compile_library(char const* raw_text,
+                                         cc::span<library_export const> exports,
+                                         output output,
+                                         bool build_debug_info = false,
+                                         char const* opt_additional_include_paths = nullptr,
+                                         char const* opt_filename_for_errors = nullptr,
+                                         char const* opt_defines = nullptr,
+                                         cc::allocator* scratch_alloc = cc::system_allocator);
 
 private:
     IDxcLibrary* _lib = nullptr;
