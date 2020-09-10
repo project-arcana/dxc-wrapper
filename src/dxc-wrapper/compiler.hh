@@ -8,6 +8,7 @@
 struct IDxcBlob;
 struct IDxcLibrary;
 struct IDxcCompiler3;
+struct IDxcContainerReflection;
 struct IDxcIncludeHandler;
 
 namespace dxcw
@@ -54,8 +55,8 @@ enum class output : uint8_t
 
 struct library_export
 {
-    target type;
-    char const* entrypoint;
+    char const* internal_name = nullptr; ///< name of the export inside HLSL, required
+    char const* export_name = nullptr;   ///< name of the export as it will be visible in the binary (same as internal if nullptr)
 };
 
 struct compiler
@@ -98,6 +99,7 @@ public:
 private:
     IDxcLibrary* _lib = nullptr;
     IDxcCompiler3* _compiler = nullptr;
+    IDxcContainerReflection* _reflection = nullptr;
     IDxcIncludeHandler* _include_handler = nullptr;
 };
 }

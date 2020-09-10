@@ -37,6 +37,10 @@ bool compile_library(dxcw::compiler& compiler,
                      char const* optional_include_dir = nullptr,
                      cc::allocator* scratch_alloc = cc::system_allocator);
 
+bool compile_binary_entry(compiler& compiler, dxcw::shaderlist_binary_entry_owning const& entry, char const* opt_include_dir, cc::allocator* scratch_alloc);
+
+bool compile_library_entry(compiler& compiler, dxcw::shaderlist_library_entry_owning const& entry, char const* opt_include_dir, cc::allocator* scratch_alloc);
+
 /// compile and write to disk all shaders as specified in a shaderlist.txt file
 ///
 /// returns false if the shaderlist cannot be opened
@@ -101,8 +105,8 @@ struct shaderlist_library_entry_owning
     char pathin_absolute[1024];
     char pathout_absolute[1024];
     char entrypoint_buffer[8192];
-    char const* exports_entrypoints[32]; // point into entrypoint_buffer
-    uint8_t export_targets[32];
+    char const* exports_internal_names[32]; // point into entrypoint_buffer
+    char const* exports_exported_names[32]; // point into entrypoint_buffer or nullptr
     uint8_t num_exports;
 };
 

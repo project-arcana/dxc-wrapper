@@ -10,6 +10,7 @@
 #include <Windows.h>
 #endif
 
+#include <dxc/DxilContainer/DxilContainer.h>
 #include <dxc/dxcapi.h>
 
 #include <clean-core/alloc_array.hh>
@@ -88,6 +89,7 @@ void dxcw::compiler::initialize()
     verify_hres(DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&_lib)));
     verify_hres(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&_compiler)));
     verify_hres(_lib->CreateIncludeHandler(&_include_handler));
+    verify_hres(DxcCreateInstance(CLSID_DxcContainerReflection, IID_PPV_ARGS(&_reflection)));
 }
 
 void dxcw::compiler::destroy()
@@ -95,6 +97,8 @@ void dxcw::compiler::destroy()
     if (_lib == nullptr)
         return;
 
+    _reflection->Release();
+    _reflection = nullptr;
     _include_handler->Release();
     _include_handler = nullptr;
     _compiler->Release();
@@ -260,7 +264,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     DEFER_RELEASE(encoding);
     _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
 
-    cc::alloc_array<LPCWSTR> compile_argument_ptrs = cc::alloc_array<LPCWSTR>::uninitialized(26 + exports.size() * 2, scratch_alloc);
+    cc::alloc_array<LPCWSTR> compile_argument_ptrs = cc::alloc_array<LPCWSTR>::uninitialized(29 + exports.size() * 2, scratch_alloc);
     unsigned num_compile_arguments = 0;
 
     auto const f_add_compile_arg = [&](wchar_t const* str) {
@@ -278,12 +282,16 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     if (output == output::spirv)
     {
         // SPIR-V specific flags
-
+        // -spirv: output SPIR-V
+        // -fspv-target-env=vulkan1.1: target Vk 1.1
+        // -fspv-extension=SPV_NV_ray_tracing: use SKV_NV_ray_tracing (as opposed to the default SPV_KHR_ray_tracing)
         // -fvk-use-dx-layout: no std140/std430/other vulkan-specific layouting, behave just like HLSL->D3D12
         // -fvk-b/t/u/s-shift: shift registers up to avoid overlap, phi-specific
 
-        wchar_t const* spirv_args[] = {
-            L"-spirv", L"-fspv-target-env=vulkan1.1", L"-fvk-use-dx-layout", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all", L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
+        wchar_t const* spirv_args[] = {L"-spirv", L"-fspv-target-env=vulkan1.1",
+                                       //                                       L"-fspv-extension=SPV_NV_ray_tracing",
+                                       L"-fvk-use-dx-layout", L"-fspv-reflect", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all",
+                                       L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
         f_add_multiple_compile_args(spirv_args, sizeof(spirv_args) / sizeof(spirv_args[0]));
     }
     else if (output == output::dxil)
@@ -322,31 +330,41 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     auto export_text = cc::alloc_array<wchar_t>::uninitialized(exports.size() * 128);
     unsigned num_chars_export_text = 0;
 
-    auto const f_add_export_wchars = [&](wchar_t const* text, unsigned strlen) {
+    [[maybe_unused]] auto const f_add_export_wchars = [&](wchar_t const* text, unsigned strlen) {
         CC_ASSERT(num_chars_export_text + strlen <= export_text.size() && "text write OOB");
         std::memcpy(export_text.data() + num_chars_export_text, text, strlen * sizeof(wchar_t));
         num_chars_export_text += strlen;
     };
 
-    auto const f_add_export_entry_text = [&](target tgt, char const* entrypoint) -> wchar_t const* {
+    auto const f_add_export_entry_text = [&](char const* export_name, char const* internal_name) -> wchar_t const* {
+        CC_ASSERT(internal_name != nullptr && "internal name is required on library exports");
         // form of export entries:
-        // <target>=<entrypoint>, f.e. closesthit=MainClosestHit
+        // <exported name>=<internal name>, f.e. closest_hit=MainClosestHit
 
         wchar_t const* const res = export_text.data() + num_chars_export_text;
 
         // write the target
-        unsigned target_strlen;
-        auto const target_as_wchar = get_library_export_name(tgt, target_strlen);
-        f_add_export_wchars(target_as_wchar, target_strlen);
+        //  unsigned target_strlen;
+        // auto const target_as_wchar = get_library_export_name(tgt, target_strlen);
+        //  f_add_export_wchars(target_as_wchar, target_strlen);
+
+        // convert and write the export name
+        {
+            auto const num_wchars_written = cc::char_to_widechar(
+                cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), export_name ? export_name : internal_name);
+            num_chars_export_text += num_wchars_written + 1;
+        }
 
         // write the equals sign
         export_text[num_chars_export_text] = L'=';
         ++num_chars_export_text;
 
-        // convert and write the entrypoint
-        auto const num_wchars_written
-            = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), entrypoint);
-        num_chars_export_text += num_wchars_written + 1;
+        // convert and write the internal name
+        {
+            auto const num_wchars_written
+                = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), internal_name);
+            num_chars_export_text += num_wchars_written + 1;
+        }
 
         return res;
     };
@@ -354,7 +372,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     for (auto const& exp : exports)
     {
         f_add_compile_arg(L"-exports");
-        f_add_compile_arg(f_add_export_entry_text(exp.type, exp.entrypoint));
+        f_add_compile_arg(f_add_export_entry_text(exp.export_name, exp.internal_name));
     }
 
     DxcBuffer source_buffer;
@@ -379,6 +397,18 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
         DXCW_LOG_ERROR("{}", static_cast<char const*>(pErrors->GetBufferPointer()));
     }
 
+    //    IDxcBlobUtf8* pReflection = nullptr;
+    //    DEFER_RELEASE(pReflection);
+    //    result->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&pReflection), nullptr);
+    //    if (pReflection != nullptr && pReflection->GetStringLength() != 0)
+    //    {
+    //        DXCW_LOG("{}", static_cast<char const*>(pReflection->GetBufferPointer()));
+    //    }
+    //    else
+    //    {
+    //        DXCW_LOG_ERROR("failed to receive reflection");
+    //    }
+
     // Quit on failure
     HRESULT hrStatus;
     result->GetStatus(&hrStatus);
@@ -393,6 +423,14 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     IDxcBlob* pShader = nullptr;
     result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), nullptr);
     return binary{pShader};
+
+
+    //    _reflection->Load(pShader);
+    //    UINT32 shaderIdx;
+    //    _reflection->FindFirstPartKind(hlsl::DFCC_DXIL, &shaderIdx);
+
+    //    return binary{pShader};
+
 
     // Save pdb
     //    IDxcBlob* pPDB = nullptr;

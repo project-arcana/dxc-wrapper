@@ -179,6 +179,40 @@ bool dxcw::compile_library(dxcw::compiler& compiler,
 }
 
 
+bool dxcw::compile_binary_entry(dxcw::compiler& compiler, const dxcw::shaderlist_binary_entry_owning& entry, const char* opt_include_dir, cc::allocator* scratch_alloc)
+{
+    auto const success
+        = dxcw::compile_shader(compiler, entry.pathin_absolute, entry.target, entry.entrypoint, entry.pathout_absolute, opt_include_dir, scratch_alloc);
+
+    if (success)
+        DXCW_LOG("compiled {} ({}; {})", entry.pathin, entry.target, entry.entrypoint);
+    else
+        DXCW_LOG_WARN("error compiling {} ({}; {})", entry.pathin, entry.target, entry.entrypoint);
+
+    return success;
+}
+
+bool dxcw::compile_library_entry(dxcw::compiler& compiler, const dxcw::shaderlist_library_entry_owning& entry, const char* opt_include_dir, cc::allocator* scratch_alloc)
+{
+    auto exports = cc::alloc_array<library_export>::uninitialized(entry.num_exports, scratch_alloc);
+
+    for (auto i = 0u; i < entry.num_exports; ++i)
+    {
+        exports[i].internal_name = entry.exports_internal_names[i];
+        exports[i].export_name = entry.exports_exported_names[i];
+    }
+
+    auto const success = dxcw::compile_library(compiler, entry.pathin_absolute, exports, entry.pathout_absolute, opt_include_dir, scratch_alloc);
+
+    if (success)
+        DXCW_LOG("compiled library {} ({} exports)", entry.pathin, entry.num_exports);
+    else
+        DXCW_LOG_WARN("error compiling library {} ({} exports)", entry.pathin, entry.num_exports);
+
+    return success;
+}
+
+
 bool dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_file, shaderlist_compilation_result* out_results, cc::allocator* scratch_alloc)
 {
     auto const f_onerror = [&]() -> void {
@@ -389,44 +423,39 @@ bool dxcw::compile_shaderlist_json(dxcw::compiler& compiler, const char* json_fi
                 char const* const str_output = f_get_string_prop(jp_library, "output");
                 if (!str_output)
                 {
-                    DXCW_LOG_WARN("skipping library on entry #{} which lacks required \"output\" text property", num_entries);
+                    DXCW_LOG_WARN("skipping library of entry #{} which lacks required \"output\" text property", num_entries);
                     continue;
                 }
 
-                constexpr dxcw::target lc_targets[] = {target::raygeneration, target::miss, target::closesthit, target::intersection, target::anyhit};
-                constexpr char const* lc_target_strings[] = {"raygeneration", "miss", "closesthit", "intersection", "anyhit"};
-                constexpr unsigned lc_num_targets = sizeof(lc_targets) / sizeof(lc_targets[0]);
+                json_t const* const jp_exports = json_getProperty(jp_library, "exports");
+                if (!jp_exports)
+                {
+                    DXCW_LOG_WARN(R"(skipping library of entry #{} which lacks required "exports" array property)", num_entries);
+                    continue;
+                }
+
+                if (jp_exports->type != JSON_ARRAY)
+                {
+                    DXCW_LOG_WARN(R"("exports" property in library of entry #{} is not an array)", num_entries);
+                    continue;
+                }
 
                 // determine the total amount of exports
                 unsigned num_exports = 0;
-                for (auto i = 0u; i < lc_num_targets; ++i)
+                for (json_t const* j_exp = json_getChild(jp_exports); j_exp; j_exp = json_getSibling(j_exp))
                 {
-                    auto const jp_target = json_getProperty(jp_library, lc_target_strings[i]);
-                    if (!jp_target)
+                    if (j_exp->type != JSON_TEXT && j_exp->type != JSON_OBJ)
+                    {
+                        DXCW_LOG_WARN(R"(an export element in library of entry #{} is neither string nor object)", num_entries);
                         continue;
+                    }
 
-                    if (jp_target->type == JSON_TEXT)
-                    {
-                        ++num_exports;
-                    }
-                    else if (jp_target->type == JSON_ARRAY)
-                    {
-                        for (auto const* jp_tgt_entry = json_getChild(jp_target); jp_tgt_entry; jp_tgt_entry = json_getSibling(jp_tgt_entry))
-                        {
-                            if (jp_tgt_entry->type == JSON_TEXT)
-                                ++num_exports;
-                        }
-                    }
-                    else
-                    {
-                        DXCW_LOG_WARN("library property \"{}\" on entry {} is not an array or a string", lc_target_strings[i], num_entries);
-                        continue;
-                    }
+                    ++num_exports;
                 }
 
                 if (num_exports == 0)
                 {
-                    DXCW_LOG_WARN("skipping library on entry #{} which specifies no exports", num_entries);
+                    DXCW_LOG_WARN("skipping library of entry #{} which specifies no exports", num_entries);
                     continue;
                 }
 
@@ -434,28 +463,35 @@ bool dxcw::compile_shaderlist_json(dxcw::compiler& compiler, const char* json_fi
                 auto export_array = cc::alloc_array<dxcw::library_export>::uninitialized(num_exports, scratch_alloc);
                 unsigned export_array_cursor = 0;
 
-                auto const f_add_export = [&](unsigned target_i, char const* string) {
-                    export_array[export_array_cursor] = library_export{lc_targets[target_i], string};
+                auto const f_add_export = [&](char const* internal_name, char const* exported_name) {
+                    export_array[export_array_cursor] = library_export{internal_name, exported_name};
                     ++export_array_cursor;
                 };
 
-                for (auto i = 0u; i < lc_num_targets; ++i)
+                for (json_t const* j_exp = json_getChild(jp_exports); j_exp; j_exp = json_getSibling(j_exp))
                 {
-                    auto const jp_target = json_getProperty(jp_library, lc_target_strings[i]);
-                    if (!jp_target)
+                    if (j_exp->type != JSON_TEXT && j_exp->type != JSON_OBJ)
+                    {
                         continue;
-
-                    if (jp_target->type == JSON_TEXT)
-                    {
-                        f_add_export(i, jp_target->u.value);
                     }
-                    else if (jp_target->type == JSON_ARRAY)
+
+                    if (j_exp->type == JSON_TEXT)
                     {
-                        for (auto const* jp_tgt_entry = json_getChild(jp_target); jp_tgt_entry; jp_tgt_entry = json_getSibling(jp_tgt_entry))
+                        f_add_export(j_exp->u.value, nullptr);
+                    }
+                    else if (j_exp->type == JSON_OBJ)
+                    {
+                        char const* str_internal = f_get_string_prop(j_exp, "internal");
+                        char const* str_export = f_get_string_prop(j_exp, "export");
+
+                        if (!str_internal)
                         {
-                            if (jp_tgt_entry->type == JSON_TEXT)
-                                f_add_export(i, jp_tgt_entry->u.value);
+                            DXCW_LOG_WARN(R"(an export element in library of entry #{} does not specify the required "internal" property - name of the export in HLSL)",
+                                          num_entries);
+                            continue;
                         }
+
+                        f_add_export(str_internal, str_export);
                     }
                 }
 
@@ -708,46 +744,40 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
                     continue;
                 }
 
-                constexpr dxcw::target lc_targets[] = {target::raygeneration, target::miss, target::closesthit, target::intersection, target::anyhit};
-                constexpr char const* lc_target_strings[] = {"raygeneration", "miss", "closesthit", "intersection", "anyhit"};
-                constexpr unsigned lc_num_targets = sizeof(lc_targets) / sizeof(lc_targets[0]);
+                json_t const* const jp_exports = json_getProperty(jp_library, "exports");
+                if (!jp_exports)
+                {
+                    DXCW_LOG_WARN(R"(skipping library of entry #{} which lacks required "exports" array property)", num_entries);
+                    continue;
+                }
+
+                if (jp_exports->type != JSON_ARRAY)
+                {
+                    DXCW_LOG_WARN(R"("exports" property in library of entry #{} is not an array)", num_entries);
+                    continue;
+                }
 
                 // determine the total amount of exports
                 unsigned num_exports = 0;
-                for (auto i = 0u; i < lc_num_targets; ++i)
+                for (json_t const* j_exp = json_getChild(jp_exports); j_exp; j_exp = json_getSibling(j_exp))
                 {
-                    auto const jp_target = json_getProperty(jp_library, lc_target_strings[i]);
-                    if (!jp_target)
+                    if (j_exp->type != JSON_TEXT && j_exp->type != JSON_OBJ)
+                    {
+                        DXCW_LOG_WARN(R"(an export element in library of entry #{} is neither string nor object)", num_entries);
                         continue;
+                    }
 
-                    if (jp_target->type == JSON_TEXT)
-                    {
-                        ++num_exports;
-                    }
-                    else if (jp_target->type == JSON_ARRAY)
-                    {
-                        for (auto const* jp_tgt_entry = json_getChild(jp_target); jp_tgt_entry; jp_tgt_entry = json_getSibling(jp_tgt_entry))
-                        {
-                            if (jp_tgt_entry->type == JSON_TEXT)
-                                ++num_exports;
-                        }
-                    }
-                    else
-                    {
-                        DXCW_LOG_WARN("library property \"{}\" on entry {} is not an array or a string", lc_target_strings[i], num_entries);
-                        ++num_errors;
-                        continue;
-                    }
+                    ++num_exports;
                 }
 
                 if (num_exports == 0)
                 {
-                    DXCW_LOG_WARN("skipping library on entry #{} which specifies no exports", num_entries);
-                    ++num_errors;
+                    DXCW_LOG_WARN("skipping library of entry #{} which specifies no exports", num_entries);
                     continue;
                 }
 
-                if (num_exports > (sizeof(shaderlist_library_entry_owning::export_targets)))
+
+                if (num_exports > (sizeof(shaderlist_library_entry_owning::exports_internal_names) / sizeof(char const*)))
                 {
                     DXCW_LOG_WARN("too many exports specified in library of entry #{}", num_entries);
                     ++num_errors;
@@ -769,33 +799,53 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
 
                     // extract entries
 
-                    auto const f_add_export = [&](unsigned target_i, char const* string) {
-                        char const* const written_string = std::strncpy(write_entry.entrypoint_buffer + exports_strbuf_cursor, string,
-                                                                        sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
-                        write_entry.exports_entrypoints[exports_cursor] = written_string;
-                        write_entry.export_targets[exports_cursor] = static_cast<uint8_t>(lc_targets[target_i]);
+                    auto const f_add_export = [&](char const* internal_name, char const* exported_name) {
+                        CC_ASSERT(internal_name && "fatal error");
+                        char const* const written_str_internal = std::strncpy(write_entry.entrypoint_buffer + exports_strbuf_cursor, internal_name,
+                                                                              sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+                        exports_strbuf_cursor += std::strlen(written_str_internal) + 1;
+                        write_entry.exports_internal_names[exports_cursor] = written_str_internal;
 
-                        exports_strbuf_cursor += std::strlen(written_string) + 1;
+                        if (exported_name)
+                        {
+                            char const* const written_str_exported = std::strncpy(write_entry.entrypoint_buffer + exports_strbuf_cursor, internal_name,
+                                                                                  sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+                            exports_strbuf_cursor += std::strlen(written_str_exported) + 1;
+                            write_entry.exports_exported_names[exports_cursor] = written_str_exported;
+                        }
+                        else
+                        {
+                            write_entry.exports_exported_names[exports_cursor] = nullptr;
+                        }
+
                         ++exports_cursor;
                     };
 
-                    for (auto i = 0u; i < lc_num_targets; ++i)
-                    {
-                        auto const jp_target = json_getProperty(jp_library, lc_target_strings[i]);
-                        if (!jp_target)
-                            continue;
 
-                        if (jp_target->type == JSON_TEXT)
+                    for (json_t const* j_exp = json_getChild(jp_exports); j_exp; j_exp = json_getSibling(j_exp))
+                    {
+                        if (j_exp->type != JSON_TEXT && j_exp->type != JSON_OBJ)
                         {
-                            f_add_export(i, jp_target->u.value);
+                            continue;
                         }
-                        else if (jp_target->type == JSON_ARRAY)
+
+                        if (j_exp->type == JSON_TEXT)
                         {
-                            for (auto const* jp_tgt_entry = json_getChild(jp_target); jp_tgt_entry; jp_tgt_entry = json_getSibling(jp_tgt_entry))
+                            f_add_export(j_exp->u.value, nullptr);
+                        }
+                        else if (j_exp->type == JSON_OBJ)
+                        {
+                            char const* str_internal = f_get_string_prop(j_exp, "internal");
+                            char const* str_export = f_get_string_prop(j_exp, "export");
+
+                            if (!str_internal)
                             {
-                                if (jp_tgt_entry->type == JSON_TEXT)
-                                    f_add_export(i, jp_tgt_entry->u.value);
+                                DXCW_LOG_WARN(R"(an export element in library of entry #{} does not specify the required "internal" property - name of the export in HLSL)",
+                                              num_entries);
+                                continue;
                             }
+
+                            f_add_export(str_internal, str_export);
                         }
                     }
                 }
