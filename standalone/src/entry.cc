@@ -22,6 +22,17 @@ volatile int gv_keep_running = 1;
 void interrupt_handler(int) { gv_keep_running = 0; }
 }
 
+int dxcw::display_version_and_exit()
+{
+    dxcw::compiler compiler;
+    compiler.initialize();
+
+    bool success = compiler.print_version();
+
+    compiler.destroy();
+    return success ? 0 : 1;
+}
+
 int dxcw::compile_shader_single(const nx::args& args)
 {
     auto const pos_args = args.positional_args();
@@ -50,6 +61,7 @@ int dxcw::compile_shaderlist_single(const char* shaderlist_path)
 {
     dxcw::compiler compiler;
     compiler.initialize();
+    compiler.print_version();
 
     dxcw::shaderlist_compilation_result res;
     bool const success = dxcw::compile_shaderlist(compiler, shaderlist_path, &res);
@@ -71,6 +83,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
 {
     dxcw::compiler compiler;
     compiler.initialize();
+    compiler.print_version();
 
     unsigned num_shaders = 0;
     dxcw::FileWatch::SharedFlag shaderlist_watch = dxcw::FileWatch::watchFile(shaderlist_path);
@@ -218,6 +231,7 @@ int dxcw::compile_shaderlist_json_single(const char* shaderlist_json, cc::alloca
 
     dxcw::compiler compiler;
     compiler.initialize();
+    compiler.print_version();
 
     cc::alloc_vector<dxcw::shaderlist_binary_entry_owning> watch_binary_entries(scratch_alloc);
     cc::alloc_vector<dxcw::shaderlist_library_entry_owning> watch_library_entries(scratch_alloc);
@@ -257,6 +271,7 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json, cc::allocat
 {
     dxcw::compiler compiler;
     compiler.initialize();
+    compiler.print_version();
 
     unsigned num_shaders = 0;
     unsigned num_libraries = 0;

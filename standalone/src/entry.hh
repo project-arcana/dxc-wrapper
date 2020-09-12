@@ -6,6 +6,8 @@
 
 namespace dxcw
 {
+int display_version_and_exit();
+
 int compile_shader_single(nx::args const& args);
 
 int compile_shaderlist_single(char const* shaderlist_path);
