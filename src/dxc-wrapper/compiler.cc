@@ -10,8 +10,9 @@
 #include <Windows.h>
 #endif
 
-#include <dxc/DxilContainer/DxilContainer.h>
 #include <dxc/dxcapi.h>
+
+#include <dxc/DxilContainer/DxilContainer.h>
 
 #include <clean-core/alloc_array.hh>
 #include <clean-core/array.hh>
@@ -22,6 +23,8 @@
 
 #include "common/log.hh"
 
+#define DXCW_DEFAULT_SHADER_MODEL "6_4"
+
 namespace
 {
 wchar_t const* get_profile_literal(dxcw::target target)
@@ -30,27 +33,27 @@ wchar_t const* get_profile_literal(dxcw::target target)
     switch (target)
     {
     case ct::vertex:
-        return L"vs_6_3";
+        return L"vs_" DXCW_DEFAULT_SHADER_MODEL;
     case ct::hull:
-        return L"hs_6_3";
+        return L"hs_" DXCW_DEFAULT_SHADER_MODEL;
     case ct::domain:
-        return L"ds_6_3";
+        return L"ds_" DXCW_DEFAULT_SHADER_MODEL;
     case ct::geometry:
-        return L"gs_6_3";
+        return L"gs_" DXCW_DEFAULT_SHADER_MODEL;
     case ct::pixel:
-        return L"ps_6_3";
+        return L"ps_" DXCW_DEFAULT_SHADER_MODEL;
     case ct::compute:
-        return L"cs_6_3";
+        return L"cs_" DXCW_DEFAULT_SHADER_MODEL;
     case ct::mesh:
-        return L"ms_6_3";
+        return L"ms_" DXCW_DEFAULT_SHADER_MODEL;
     case ct::amplification:
-        return L"as_6_3";
+        return L"as_" DXCW_DEFAULT_SHADER_MODEL;
     default:
         return L"ERR_UNKNOWN_TARGET";
     }
 }
 
-wchar_t const* get_library_export_name(dxcw::target tgt, unsigned& out_strlen)
+[[maybe_unused]] wchar_t const* get_library_export_name(dxcw::target tgt, unsigned& out_strlen)
 {
     using ct = dxcw::target;
 #define DXCW_CASE_RETURN(_val_)         \
@@ -107,7 +110,7 @@ void dxcw::compiler::destroy()
     _lib = nullptr;
 }
 
-dxcw::binary dxcw::compiler::compile_binary(const char* raw_text,
+dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
                                             const char* entrypoint,
                                             dxcw::target target,
                                             dxcw::output output,
@@ -301,7 +304,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     }
 
     f_add_compile_arg(L"-T");
-    f_add_compile_arg(L"lib_6_3");
+    f_add_compile_arg(L"lib_" DXCW_DEFAULT_SHADER_MODEL);
 
     // include paths
     if (opt_additional_include_paths != nullptr)
@@ -443,6 +446,66 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     //        find it quickly. _wfopen_s(&fp, pPDBName->GetStringPointer(), L"wb"); fwrite(pPDB->GetBufferPointer(), pPDB->GetBufferSize(), 1, fp);
     //        fclose(fp);
     //    }
+}
+
+bool dxcw::compiler::print_version() const
+{
+    unsigned ver_maj = 0, ver_min = 0, ver_commit_i = 0;
+    char const* ver_commit_hash = nullptr;
+
+    if (get_version(ver_maj, ver_min))
+    {
+        if (get_version_commit(ver_commit_i, ver_commit_hash))
+            DXCW_LOG("DXC v{}.{} (dev {}-{})", ver_maj, ver_min, ver_commit_i, ver_commit_hash);
+        else
+            DXCW_LOG("DXC v{}.{}", ver_maj, ver_min, ver_commit_i, ver_commit_hash);
+
+        return true;
+    }
+    else
+    {
+        DXCW_LOG_WARN("failed to query DXC version");
+        return false;
+    }
+}
+
+bool dxcw::compiler::get_version(unsigned& out_major, unsigned& out_minor) const
+{
+    IDxcVersionInfo* version_info = nullptr;
+    auto hres = _compiler->QueryInterface(IID_PPV_ARGS(&version_info));
+
+    if (SUCCEEDED(hres) && version_info)
+    {
+        hres = version_info->GetVersion(&out_major, &out_minor);
+        version_info->Release();
+        return SUCCEEDED(hres);
+    }
+
+    out_major = 0;
+    out_minor = 0;
+    return false;
+}
+
+bool dxcw::compiler::get_version_commit(unsigned& out_num_commits, const char*& out_commit_hash) const
+{
+    IDxcVersionInfo2* version_info = nullptr;
+    auto hres = _compiler->QueryInterface(IID_PPV_ARGS(&version_info));
+
+    if (SUCCEEDED(hres) && version_info)
+    {
+        char* commit_hash_com = nullptr;
+        hres = version_info->GetCommitInfo(&out_num_commits, &commit_hash_com);
+
+        if (SUCCEEDED(hres) && commit_hash_com)
+        {
+            out_commit_hash = commit_hash_com;
+            return true;
+        }
+    }
+
+    out_num_commits = 0;
+    out_commit_hash = nullptr;
+    return false;
 }
 
 
