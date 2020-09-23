@@ -15,13 +15,27 @@
 #include <dxc-wrapper/common/tinyjson.hh>
 #include <dxc-wrapper/compiler.hh>
 
+// use this over std::strncpy wherever possible (direct reference to dest buffer)
+#ifdef CC_OS_WINDOWS
+#define DXCW_STRNCPY ::strncpy_s
+#else
+#define DXCW_STRNCPY std::strncpy
+#endif
+
 namespace
 {
 cc::alloc_array<char> read_file(char const* path, cc::allocator* alloc)
 {
+#ifdef CC_OS_WINDOWS
+    std::FILE* fp = nullptr;
+    errno_t err = ::fopen_s(&fp, path, "rb");
+    if (err != 0 || !fp)
+        return {};
+#else
     std::FILE* fp = std::fopen(path, "rb");
     if (!fp)
         return {};
+#endif
 
     std::fseek(fp, 0, SEEK_END);
     auto res = cc::alloc_array<char>::uninitialized(std::ftell(fp) + 1, alloc);
@@ -572,11 +586,11 @@ unsigned dxcw::parse_shaderlist(const char* shaderlist_file, dxcw::shaderlist_bi
             {
                 auto& write_entry = out_entries[num_shaders];
                 auto const pathout_absolute = (base_path_fs / pathout).string();
-                std::strncpy(write_entry.pathin, pathin.c_str(), sizeof(write_entry.pathin));
-                std::strncpy(write_entry.pathin_absolute, pathin_absolute_fs.string().c_str(), sizeof(write_entry.pathin_absolute));
-                std::strncpy(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
-                std::strncpy(write_entry.target, target.c_str(), sizeof(write_entry.target));
-                std::strncpy(write_entry.entrypoint, entrypoint.c_str(), sizeof(write_entry.entrypoint));
+                DXCW_STRNCPY(write_entry.pathin, pathin.c_str(), sizeof(write_entry.pathin));
+                DXCW_STRNCPY(write_entry.pathin_absolute, pathin_absolute_fs.string().c_str(), sizeof(write_entry.pathin_absolute));
+                DXCW_STRNCPY(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
+                DXCW_STRNCPY(write_entry.target, target.c_str(), sizeof(write_entry.target));
+                DXCW_STRNCPY(write_entry.entrypoint, entrypoint.c_str(), sizeof(write_entry.entrypoint));
             }
 
             ++num_shaders;
@@ -714,11 +728,11 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
                         auto& write_entry = out_binaries[out_num_binaries];
                         auto const pathout_absolute = (base_path_fs / str_output).string();
 
-                        std::strncpy(write_entry.pathin, str_source, sizeof(write_entry.pathin));
-                        std::strncpy(write_entry.pathin_absolute, pathin_absolute.string().c_str(), sizeof(write_entry.pathin_absolute));
-                        std::strncpy(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
-                        std::strncpy(write_entry.target, str_target, sizeof(write_entry.target));
-                        std::strncpy(write_entry.entrypoint, str_entrypoint, sizeof(write_entry.entrypoint));
+                        DXCW_STRNCPY(write_entry.pathin, str_source, sizeof(write_entry.pathin));
+                        DXCW_STRNCPY(write_entry.pathin_absolute, pathin_absolute.string().c_str(), sizeof(write_entry.pathin_absolute));
+                        DXCW_STRNCPY(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
+                        DXCW_STRNCPY(write_entry.target, str_target, sizeof(write_entry.target));
+                        DXCW_STRNCPY(write_entry.entrypoint, str_entrypoint, sizeof(write_entry.entrypoint));
                     }
 
                     ++out_num_binaries;
@@ -789,9 +803,9 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
                     auto& write_entry = out_libraries[out_num_libraries];
                     auto const pathout_absolute = (base_path_fs / str_output).string();
 
-                    std::strncpy(write_entry.pathin, str_source, sizeof(write_entry.pathin));
-                    std::strncpy(write_entry.pathin_absolute, pathin_absolute.string().c_str(), sizeof(write_entry.pathin_absolute));
-                    std::strncpy(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
+                    DXCW_STRNCPY(write_entry.pathin, str_source, sizeof(write_entry.pathin));
+                    DXCW_STRNCPY(write_entry.pathin_absolute, pathin_absolute.string().c_str(), sizeof(write_entry.pathin_absolute));
+                    DXCW_STRNCPY(write_entry.pathout_absolute, pathout_absolute.c_str(), sizeof(write_entry.pathout_absolute));
                     write_entry.num_exports = uint8_t(num_exports);
 
                     unsigned exports_cursor = 0;
@@ -801,15 +815,18 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
 
                     auto const f_add_export = [&](char const* internal_name, char const* exported_name) {
                         CC_ASSERT(internal_name && "fatal error");
-                        char const* const written_str_internal = std::strncpy(write_entry.entrypoint_buffer + exports_strbuf_cursor, internal_name,
-                                                                              sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+
+                        char* const written_str_internal = write_entry.entrypoint_buffer + exports_strbuf_cursor;
+                        std::strncpy(written_str_internal, internal_name, sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+
                         exports_strbuf_cursor += std::strlen(written_str_internal) + 1;
                         write_entry.exports_internal_names[exports_cursor] = written_str_internal;
 
                         if (exported_name)
                         {
-                            char const* const written_str_exported = std::strncpy(write_entry.entrypoint_buffer + exports_strbuf_cursor, internal_name,
-                                                                                  sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+                            char* const written_str_exported = write_entry.entrypoint_buffer + exports_strbuf_cursor;
+                            std::strncpy(written_str_exported, internal_name, sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+
                             exports_strbuf_cursor += std::strlen(written_str_exported) + 1;
                             write_entry.exports_exported_names[exports_cursor] = written_str_exported;
                         }
@@ -898,21 +915,45 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
             if (ss >> token1 && ss >> token2 && std::strcmp(token1.c_str(), "#include") == 0 && token2.length() > 2)
             {
                 // this line is formatted like an #include directive
-                ec.clear();
-                auto const path_absolute_fs = std::filesystem::canonical(include_path_fs / token2.substr(1, token2.length() - 2), ec);
-                if (ec)
+
+                std::string absolute_include;
                 {
-                    // include is invalid, silently fail (DXC will warn about this already)
-                    continue;
+                    std::string const include_without_quotes = token2.substr(1, token2.length() - 2);
+                    // look the include up by completing it from root ("include_path")
+                    ec.clear();
+                    auto const include_path_from_root_fs = std::filesystem::canonical(include_path_fs / include_without_quotes, ec);
+
+                    if (ec)
+                    {
+                        // look it up by completing it from the current folder instead
+                        ec.clear();
+                        auto const include_path_from_local_fs
+                            = std::filesystem::canonical(std::filesystem::path(path).remove_filename() / include_without_quotes, ec);
+
+                        if (ec)
+                        {
+                            // include is invalid, silently fail (DXC will warn about this already)
+                            // printf("        - parsed include %s which cannot be found\n", include_without_quotes.c_str());
+                            continue;
+                        }
+                        else
+                        {
+                            absolute_include = include_path_from_local_fs.string();
+                        }
+                    }
+                    else
+                    {
+                        absolute_include = include_path_from_root_fs.string();
+                    }
                 }
-                auto const path_absolute = path_absolute_fs.string();
 
                 // check if already existing
                 bool preexists = false;
                 for (auto i = 0u; i < num_prev_includes + num_added_includes; ++i)
                 {
-                    if (std::strcmp(out_include_entries[i].includepath_absolute, path_absolute.c_str()) == 0)
+                    if (std::strcmp(out_include_entries[i].includepath_absolute, absolute_include.c_str()) == 0)
                     {
+                        // printf("        - found include %s which already exists\n", absolute_include.c_str());
                         preexists = true;
                         break;
                     }
@@ -926,12 +967,14 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
                         return num_added_includes;
                     }
 
-                    std::strncpy(out_include_entries[next_index].includepath_absolute, path_absolute.c_str(), sizeof(out_include_entries[0].includepath_absolute));
+                    DXCW_STRNCPY(out_include_entries[next_index].includepath_absolute, absolute_include.c_str(),
+                                 sizeof(out_include_entries[0].includepath_absolute));
                     ++num_added_includes;
                 }
             }
         }
 
+        // printf("        added file %s, got %d new includes\n", path, num_added_includes);
         return num_added_includes;
     };
 
@@ -944,11 +987,15 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
         if (include_cursor >= 0)
             next_file_to_add = out_include_entries[include_cursor].includepath_absolute;
 
-        // printf("    cursor %d, num_includes: %u, next file: %s\n", include_cursor, num_includes, next_file_to_add);
+        //        printf("    cursor %d, num_includes: %u, next file: %s\n", include_cursor, num_includes, next_file_to_add);
 
         num_latest_addition = f_add_file(next_file_to_add, num_includes);
+
         num_includes += num_latest_addition;
         ++include_cursor;
+
+        //        printf("    latest addition: %d (cursor %d vs num %d)\n", num_latest_addition, include_cursor, num_includes);
+
     } while (unsigned(include_cursor) < num_includes);
 
     return num_includes;
