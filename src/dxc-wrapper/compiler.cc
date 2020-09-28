@@ -130,13 +130,21 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
     wchar_t include_path_wide[1024];
+    wchar_t opt_filename_wide[1024];
     wchar_t entrypoint_wide[64];
 
     IDxcBlobEncoding* encoding = nullptr;
     DEFER_RELEASE(encoding);
     _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
 
-    cc::capped_vector<LPCWSTR, 26> compile_arguments;
+    cc::capped_vector<LPCWSTR, 27> compile_arguments;
+
+    if (opt_filename_for_errors)
+    {
+        cc::char_to_widechar(opt_filename_wide, opt_filename_for_errors);
+        // the filename for errors is simply any non-flag argument to the compilation
+        compile_arguments.push_back(opt_filename_wide);
+    }
 
     if (output == output::spirv)
     {
@@ -262,6 +270,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
     wchar_t include_path_wide[1024];
+    wchar_t opt_filename_wide[1024];
 
     IDxcBlobEncoding* encoding = nullptr;
     DEFER_RELEASE(encoding);
@@ -281,6 +290,13 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
         std::memcpy(compile_argument_ptrs.data() + num_compile_arguments, &strs[0], num * sizeof(wchar_t const*));
         num_compile_arguments += num;
     };
+
+    if (opt_filename_for_errors)
+    {
+        cc::char_to_widechar(opt_filename_wide, opt_filename_for_errors);
+        // the filename for errors is simply any non-flag argument to the compilation
+        f_add_compile_arg(opt_filename_wide);
+    }
 
     if (output == output::spirv)
     {
