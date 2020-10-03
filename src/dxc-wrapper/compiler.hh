@@ -128,7 +128,7 @@ public:
 private:
     IDxcLibrary* _lib = nullptr;
     IDxcCompiler3* _compiler = nullptr;
-    //IDxcContainerReflection* _reflection = nullptr;
+    // IDxcContainerReflection* _reflection = nullptr;
     IDxcIncludeHandler* _include_handler = nullptr;
 };
 }

@@ -104,7 +104,7 @@ void dxcw::compiler::initialize()
     verify_hres(DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&_lib)));
     verify_hres(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&_compiler)));
     verify_hres(_lib->CreateIncludeHandler(&_include_handler));
-    //verify_hres(DxcCreateInstance(CLSID_DxcContainerReflection, IID_PPV_ARGS(&_reflection)));
+    // verify_hres(DxcCreateInstance(CLSID_DxcContainerReflection, IID_PPV_ARGS(&_reflection)));
 }
 
 void dxcw::compiler::destroy()
