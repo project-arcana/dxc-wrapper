@@ -8,11 +8,23 @@
 
 #ifdef CC_OS_WINDOWS
 #include <Windows.h>
+#else
+
+#ifdef CC_COMPILER_POSIX
+
+// DXC assumes that clang has support for UUIDs, Clang 7 at least does not have it
+// this define is used in dxc/Support/WinAdapter.h
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreserved-id-macro"
+#define __EMULATE_UUID 1
+#pragma GCC diagnostic pop
+
+#endif
+
 #endif
 
 #include <dxc/dxcapi.h>
-
-//#include <dxc/DxilContainer/DxilContainer.h>
 
 #include <clean-core/alloc_array.hh>
 #include <clean-core/array.hh>
@@ -59,7 +71,7 @@ wchar_t const* get_profile_literal(dxcw::target target)
 #define DXCW_CASE_RETURN(_val_)         \
     case ct::_val_:                     \
         out_strlen = sizeof #_val_ - 1; \
-        return L#_val_
+        return L## #_val_
     switch (tgt)
     {
         DXCW_CASE_RETURN(compute);
@@ -92,7 +104,7 @@ void dxcw::compiler::initialize()
     verify_hres(DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&_lib)));
     verify_hres(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&_compiler)));
     verify_hres(_lib->CreateIncludeHandler(&_include_handler));
-    verify_hres(DxcCreateInstance(CLSID_DxcContainerReflection, IID_PPV_ARGS(&_reflection)));
+    //verify_hres(DxcCreateInstance(CLSID_DxcContainerReflection, IID_PPV_ARGS(&_reflection)));
 }
 
 void dxcw::compiler::destroy()
@@ -100,8 +112,8 @@ void dxcw::compiler::destroy()
     if (_lib == nullptr)
         return;
 
-    _reflection->Release();
-    _reflection = nullptr;
+    //_reflection->Release();
+    //_reflection = nullptr;
     _include_handler->Release();
     _include_handler = nullptr;
     _compiler->Release();
@@ -371,7 +383,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
         {
             auto const num_wchars_written = cc::char_to_widechar(
                 cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), export_name ? export_name : internal_name);
-            num_chars_export_text += num_wchars_written + 1;
+            num_chars_export_text += unsigned(num_wchars_written) + 1;
         }
 
         // write the equals sign
@@ -382,7 +394,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
         {
             auto const num_wchars_written
                 = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), internal_name);
-            num_chars_export_text += num_wchars_written + 1;
+            num_chars_export_text += unsigned(num_wchars_written) + 1;
         }
 
         return res;
