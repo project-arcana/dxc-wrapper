@@ -12,7 +12,7 @@
 
 #include <dxc/dxcapi.h>
 
-#include <dxc/DxilContainer/DxilContainer.h>
+//#include <dxc/DxilContainer/DxilContainer.h>
 
 #include <clean-core/alloc_array.hh>
 #include <clean-core/array.hh>
