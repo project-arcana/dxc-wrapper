@@ -15,11 +15,13 @@
 #include <dxc-wrapper/common/tinyjson.hh>
 #include <dxc-wrapper/compiler.hh>
 
-// use this over std::strncpy wherever possible (direct reference to dest buffer)
+// use these over std::strncpy
 #ifdef CC_OS_WINDOWS
 #define DXCW_STRNCPY ::strncpy_s
+#define DXCW_STRNCPY_NO_REF(_dest_, _destsize_, _src_, _maxnum_) ::strncpy_s(_dest_, _destsize_, _src_, _maxnum_)
 #else
 #define DXCW_STRNCPY std::strncpy
+#define DXCW_STRNCPY_NO_REF(_dest_, _destsize_, _src_, _maxnum_) std::strncpy(_dest_, _src_, _maxnum_)
 #endif
 
 namespace
@@ -817,7 +819,8 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
                         CC_ASSERT(internal_name && "fatal error");
 
                         char* const written_str_internal = write_entry.entrypoint_buffer + exports_strbuf_cursor;
-                        std::strncpy(written_str_internal, internal_name, sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+                        DXCW_STRNCPY_NO_REF(written_str_internal, sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor, internal_name,
+                                            sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
 
                         exports_strbuf_cursor += std::strlen(written_str_internal) + 1;
                         write_entry.exports_internal_names[exports_cursor] = written_str_internal;
@@ -825,7 +828,8 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
                         if (exported_name)
                         {
                             char* const written_str_exported = write_entry.entrypoint_buffer + exports_strbuf_cursor;
-                            std::strncpy(written_str_exported, internal_name, sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
+                            DXCW_STRNCPY_NO_REF(written_str_exported, sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor, internal_name,
+                                                sizeof(write_entry.entrypoint_buffer) - exports_strbuf_cursor);
 
                             exports_strbuf_cursor += std::strlen(written_str_exported) + 1;
                             write_entry.exports_exported_names[exports_cursor] = written_str_exported;
