@@ -65,6 +65,8 @@ wchar_t const* get_profile_literal(dxcw::target target)
     }
 }
 
+char const* get_output_type_literal(dxcw::output output) { return (output == dxcw::output::dxil) ? "DXIL" : "SPIR-V"; }
+
 [[maybe_unused]] wchar_t const* get_library_export_name(dxcw::target tgt, unsigned& out_strlen)
 {
     using ct = dxcw::target;
@@ -231,7 +233,7 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
     // IDxcCompiler3::Compile will always return an error buffer, but its length will be zero if there are no warnings or errors.
     if (pErrors != nullptr && pErrors->GetStringLength() != 0)
     {
-        DXCW_LOG_ERROR("shader \"{}\", entrypoint \"{}\":", opt_filename_for_errors, entrypoint);
+        DXCW_LOG_ERROR(R"(shader "{}", entrypoint "{}" ({}):)", opt_filename_for_errors, entrypoint, get_output_type_literal(output));
         DXCW_LOG_ERROR("{}", static_cast<char const*>(pErrors->GetBufferPointer()));
     }
 
@@ -424,7 +426,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     // IDxcCompiler3::Compile will always return an error buffer, but its length will be zero if there are no warnings or errors.
     if (pErrors != nullptr && pErrors->GetStringLength() != 0)
     {
-        DXCW_LOG_ERROR("shader library \"{}\":", opt_filename_for_errors);
+        DXCW_LOG_ERROR(R"(shader library "{}", ({}):)", opt_filename_for_errors, get_output_type_literal(output));
         DXCW_LOG_ERROR("{}", static_cast<char const*>(pErrors->GetBufferPointer()));
     }
 
