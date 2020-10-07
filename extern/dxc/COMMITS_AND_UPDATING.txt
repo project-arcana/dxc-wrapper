@@ -1,0 +1,25 @@
+
+This repo contains multiple versions of DXC - compiled binaries and required includes
+
+Current commit hashes
+7a8c4a20da905a736637595fc6111c3ce033ba21 - 31.01.2020 - ACTIVE
+d0fa5e301b4734a7261ac50f77e863d54ecc45e6 - 3.10.2020 - newer, but has several issues (SPIR-V RT_NV libraries, vk::push_constant attributes on ConstantBuffers)
+
+Commit hashes are from the DXC github repository, find them using URLs like
+https://github.com/microsoft/DirectXShaderCompiler/commit/7a8c4a20da905a736637595fc6111c3ce033ba21
+
+The active commit hash is set in the CMakeLists.txt in this folder
+
+How to update DXC:
+
+1. clone https://github.com/jkunstwald/dxc-cmake and check out the desired commit in the DXC submodule
+2. compile using "Minimum Size Release" on windows (if this fails, you're most likely missing the Windows WDK for your current Win10 SDK version)
+3. do the same on linux - note: the binary will link to CRT symbols depending on the installed libc6 version (if this fails, try clang 9)
+4. create a new folder here, named after the commit hash
+5. create subfolders bin/, lib/, lib_linux/, and include/dxc/
+6. (win32) copy dxcompiler.dll: from build/MinSizeRel/extern/DirectXShaderCompiler/bin/dxcompiler.dll to bin/dxcompiler.dll
+7. (win32) copy dxcompiler.lib: from build/MinSizeRel/extern/DirectXShaderCompiler/lib/dxcompiler.lib to lib/dxcompiler.lib
+8. (linux) copy libdxcompiler.so.3.7: from build/MinSizeRel/extern/DirectXShaderCompiler/lib/libdxcompiler.so.3.7 to lib_linux/libdxcompiler.so.3.7
+9. copy the entire include folder: from DirectXShaderCompiler/include/dxc/ to include/dxc/
+10. copy dxil.dll: this depends on the windows SDK version, if in doubt, copy the one of the previously active commit (bin/dxil.dll)
+11. set the new commit hash as active in CMakeLists.txt

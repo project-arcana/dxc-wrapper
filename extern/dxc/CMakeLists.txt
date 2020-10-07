@@ -1,20 +1,23 @@
 cmake_minimum_required(VERSION 3.8)
 project(DXCmake)
 
+set(DXCW_ACTIVE_DXC_COMMIT_HASH "7a8c4a20da905a736637595fc6111c3ce033ba21")
+set(DXCW_ACTIVE_DXC_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${DXCW_ACTIVE_DXC_COMMIT_HASH}")
+
 file(GLOB_RECURSE SOURCES "lib/*.h")
 
 add_library(dxc-wrap STATIC ${SOURCES} "dummy.cc")
 
-target_include_directories(dxc-wrap PUBLIC include/)
+target_include_directories(dxc-wrap PUBLIC "${DXCW_ACTIVE_DXC_COMMIT_HASH}/include/")
 
 if (MSVC)
     target_link_libraries(dxc-wrap
         PUBLIC
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib/dxcompiler.lib"
+            "${DXCW_ACTIVE_DXC_PATH}/lib/dxcompiler.lib"
     )
 
     # copy the dll to the runtime output folder post-build
-    set(DXC_COPY_DLLS "${CMAKE_CURRENT_SOURCE_DIR}/bin/dxcompiler.dll" "${CMAKE_CURRENT_SOURCE_DIR}/bin/dxil.dll")
+    set(DXC_COPY_DLLS "${DXCW_ACTIVE_DXC_PATH}/bin/dxcompiler.dll" "${DXCW_ACTIVE_DXC_PATH}/bin/dxil.dll")
 
     foreach(file_i ${DXC_COPY_DLLS})
         add_custom_command(
@@ -28,6 +31,6 @@ if (MSVC)
 else()
     target_link_libraries(dxc-wrap
         PUBLIC
-            "${CMAKE_CURRENT_SOURCE_DIR}/lib_linux/libdxcompiler.so.3.7"
+            "${DXCW_ACTIVE_DXC_PATH}/lib_linux/libdxcompiler.so.3.7"
     )
 endif()
