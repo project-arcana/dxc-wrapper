@@ -418,8 +418,7 @@ bool dxcw::compile_shaderlist_json(dxcw::compiler& compiler, const char* json_fi
 
                     // all good, compile the shader binary
                     ++num_shaders;
-                    auto const success = compile_shader(compiler, pathin_absolute.string().c_str(), str_target, str_entrypoint, str_output,
-                                                        base_path_string.c_str(), scratch_alloc);
+                    auto const success = compile_shader(compiler, pathin_absolute.string().c_str(), str_target, str_entrypoint, (base_path_fs / str_output).string().c_str(), base_path_string.c_str(), scratch_alloc);
 
                     if (!success)
                         ++num_errors;
