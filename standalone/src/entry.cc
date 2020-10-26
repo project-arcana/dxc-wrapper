@@ -236,15 +236,26 @@ int dxcw::compile_shaderlist_json_single(const char* shaderlist_json, cc::alloca
     cc::alloc_vector<dxcw::shaderlist_binary_entry_owning> watch_binary_entries(scratch_alloc);
     cc::alloc_vector<dxcw::shaderlist_library_entry_owning> watch_library_entries(scratch_alloc);
 
+    // parse the shaderlist
     unsigned num_shaders, num_libraries;
-    bool success = dxcw::parse_shaderlist_json(shaderlist_json, {}, num_shaders, {}, num_libraries, scratch_alloc);
-    if (!success)
-        return 1;
+    bool not_enough_space = false;
+    do
+    {
+        bool success = dxcw::parse_shaderlist_json(shaderlist_json, watch_binary_entries, num_shaders, watch_library_entries, num_libraries, scratch_alloc);
 
-    watch_binary_entries.resize(num_shaders);
-    watch_library_entries.resize(num_libraries);
+        if (!success)
+            return false;
 
-    dxcw::parse_shaderlist_json(shaderlist_json, watch_binary_entries, num_shaders, watch_library_entries, num_libraries, scratch_alloc);
+        // the vectors might currently not have enough space for all entries
+        not_enough_space = (num_shaders > watch_binary_entries.size()) || (num_libraries > watch_library_entries.size());
+
+        if (not_enough_space)
+        {
+            // resize the vectors to make enough space for a re-run
+            watch_binary_entries.resize(num_shaders);
+            watch_library_entries.resize(num_libraries);
+        }
+    } while (not_enough_space); // do-while because this could theoretically happen multiple times with unlucky file changes between each run
 
     unsigned num_errors = 0;
     for (auto i = 0u; i < num_shaders; ++i)
@@ -267,18 +278,16 @@ int dxcw::compile_shaderlist_json_single(const char* shaderlist_json, cc::alloca
     return (num_errors == 0) ? 0 : 1;
 }
 
-int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json, cc::allocator* scratch_alloc)
+int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::allocator* scratch_alloc)
 {
     dxcw::compiler compiler;
     compiler.initialize();
     compiler.print_version();
 
-    unsigned num_shaders = 0;
-    unsigned num_libraries = 0;
-    dxcw::FileWatch::SharedFlag shaderlist_watch = dxcw::FileWatch::watchFile(shaderlist_json);
+    dxcw::FileWatch::SharedFlag shaderlist_watch = dxcw::FileWatch::watchFile(shaderlist_json_path);
     if (!shaderlist_watch)
     {
-        DXCW_LOG_ERROR("failed to open shaderlist json file at {}", shaderlist_json);
+        DXCW_LOG_ERROR("failed to open shaderlist json file at {}", shaderlist_json_path);
         return 1;
     }
 
@@ -292,19 +301,23 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json, cc::allocat
         bool was_last_compilation_successful = true;
     };
 
+    unsigned num_shaders = 0;
     cc::alloc_vector<dxcw::shaderlist_binary_entry_owning> watch_binary_entries(scratch_alloc);
-    cc::alloc_vector<dxcw::shaderlist_library_entry_owning> watch_library_entries(scratch_alloc);
     cc::alloc_vector<auxilliary_watch_entry> watch_binary_aux(scratch_alloc);
+
+    unsigned num_libraries = 0;
+    cc::alloc_vector<dxcw::shaderlist_library_entry_owning> watch_library_entries(scratch_alloc);
     cc::alloc_vector<auxilliary_watch_entry> watch_library_aux(scratch_alloc);
+
     unsigned num_binary_errors = 0, num_library_errors = 0;
     bool any_errors_remaining = false;
 
     std::error_code ec;
-    auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_json).remove_filename(), ec).string();
+    auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_json_path).remove_filename(), ec).string();
 
     if (ec)
     {
-        DXCW_LOG_ERROR("failed to open shaderlist json file at {}", shaderlist_json);
+        DXCW_LOG_ERROR("failed to open shaderlist json file at {}", shaderlist_json_path);
         return 1;
     }
 
@@ -323,17 +336,30 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json, cc::allocat
     };
 
     auto f_refresh_all_entries = [&]() -> bool {
-        bool success = dxcw::parse_shaderlist_json(shaderlist_json, {}, num_shaders, {}, num_libraries, scratch_alloc);
-        if (!success)
-            return false;
+        // parse the shaderlist
+        bool not_enough_space = false;
+        do
+        {
+            bool success = dxcw::parse_shaderlist_json(shaderlist_json_path, watch_binary_entries, num_shaders, watch_library_entries, num_libraries, scratch_alloc);
 
-        watch_binary_entries.resize(num_shaders);
+            if (!success)
+                return false;
+
+            // the vectors might currently not have enough space for all entries
+            not_enough_space = (num_shaders > watch_binary_entries.size()) || (num_libraries > watch_library_entries.size());
+
+            if (not_enough_space)
+            {
+                // resize the vectors to make enough space for a re-run
+                watch_binary_entries.resize(num_shaders);
+                watch_library_entries.resize(num_libraries);
+            }
+        } while (not_enough_space); // do-while because this could theoretically happen multiple times with unlucky file changes between each run
+
+        // resize the aux vectors to always fit exactly
         watch_binary_aux.resize(num_shaders);
-
-        watch_library_entries.resize(num_libraries);
         watch_library_aux.resize(num_libraries);
-
-        dxcw::parse_shaderlist_json(shaderlist_json, watch_binary_entries, num_shaders, watch_library_entries, num_libraries, scratch_alloc);
+        // (do not resize (downsize) the main vectors, not required as they are never looped)
 
         DXCW_LOG("parsed json file, detected {} binaries, {} libraries", num_shaders, num_libraries);
 
