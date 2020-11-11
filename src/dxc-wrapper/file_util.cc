@@ -51,7 +51,7 @@ cc::alloc_array<char> read_file(char const* path, cc::allocator* alloc)
 
 bool parse_target(char const* str, dxcw::target& out_tgt)
 {
-    if (std::strlen(str) < 1)
+    if (!str)
     {
         return false;
     }
@@ -85,25 +85,44 @@ bool parse_target(char const* str, dxcw::target& out_tgt)
 
 bool dxcw::write_binary_to_file(const dxcw::binary& binary, const char* path, const char* ending)
 {
-    if (binary.data == nullptr)
-        return false;
+    CC_CONTRACT(path);
+    CC_CONTRACT(ending);
 
     char outpath[1024];
     std::snprintf(outpath, sizeof(outpath), "%s.%s", path, ending);
 
+    return write_binary_to_file(binary, outpath);
+}
+
+
+bool dxcw::write_binary_to_file(const dxcw::binary& binary, const char* path)
+{
+    if (binary.data == nullptr)
+        return false;
+
     // recursively create directories required for the output
-    std::filesystem::create_directories(std::filesystem::path(outpath).remove_filename());
+    std::filesystem::create_directories(std::filesystem::path(path).remove_filename());
 
-    auto outfile = std::fstream(outpath, std::ios::out | std::ios::binary);
-
-    if (!outfile.good())
+#ifdef CC_OS_WINDOWS
+    std::FILE* fp = nullptr;
+    errno_t err = ::fopen_s(&fp, path, "wb");
+    if (err != 0)
     {
-        DXCW_LOG_ERROR("failed to write shader to {}.{}", path, ending);
+        fp = nullptr;
+    }
+
+#else
+    std::FILE* fp = std::fopen(path, "wb");
+#endif
+
+    if (!fp)
+    {
+        DXCW_LOG_ERROR("failed to write shader to {}", path);
         return false;
     }
 
-    outfile.write(reinterpret_cast<char const*>(binary.data), std::streamsize(binary.size));
-    outfile.close();
+    std::fwrite(binary.data, 1, binary.size, fp);
+    std::fclose(fp);
     return true;
 }
 
@@ -1003,4 +1022,37 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
     } while (unsigned(include_cursor) < num_includes);
 
     return num_includes;
+}
+
+bool dxcw::parse_target(const char* str, dxcw::target& out_tgt)
+{
+    if (!str)
+    {
+        return false;
+    }
+
+    // first char is enough
+    switch (str[0])
+    {
+    case 'v':
+        out_tgt = dxcw::target::vertex;
+        return true;
+    case 'h':
+        out_tgt = dxcw::target::hull;
+        return true;
+    case 'd':
+        out_tgt = dxcw::target::domain;
+        return true;
+    case 'g':
+        out_tgt = dxcw::target::geometry;
+        return true;
+    case 'p':
+        out_tgt = dxcw::target::pixel;
+        return true;
+    case 'c':
+        out_tgt = dxcw::target::compute;
+        return true;
+    default:
+        return false;
+    }
 }

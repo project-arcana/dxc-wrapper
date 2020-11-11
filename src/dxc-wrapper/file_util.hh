@@ -4,18 +4,22 @@
 
 #include <clean-core/fwd.hh>
 
+#include <dxc-wrapper/fwd.hh>
+
 namespace dxcw
 {
-struct binary;
-struct compiler;
 struct shaderlist_compilation_result;
 struct shaderlist_binary_entry_owning;
 struct shaderlist_library_entry_owning;
 struct include_entry;
-struct library_export;
+
+/// Parses the target from a string, ie "vs" -> dxcw::target::vertex
+bool parse_target(char const* str, dxcw::target& out_tgt);
 
 /// Writes a compiled binary to disk, creates folders if nonexisting
 bool write_binary_to_file(dxcw::binary const& binary, char const* path, char const* ending);
+
+bool write_binary_to_file(dxcw::binary const& binary, char const* path);
 
 /// compile a shader and directly write both target versions to file, returns true on success
 /// output_path without file ending
