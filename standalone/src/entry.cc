@@ -98,8 +98,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
     {
         dxcw::FileWatch::SharedFlag main_flag;
         dxcw::FileWatch::SharedFlag include_flags[sc_max_num_includes];
-        dxcw::include_entry include_entries[sc_max_num_includes];
-        unsigned num_include_files = 0;
+        cc::vector<cc::string> included_files;
         bool was_last_compilation_successful = true;
     };
 
@@ -116,13 +115,13 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
     }
 
     auto const f_refresh_includes = [&](auxilliary_watch_entry& aux_entry, char const* shader_path) -> void {
-        aux_entry.num_include_files = dxcw::parse_includes(shader_path, base_path_fs.c_str(), aux_entry.include_entries, sc_max_num_includes);
+        aux_entry.included_files = dxcw::parse_includes(shader_path, base_path_fs.c_str());
 
-        for (auto j = 0u; j < aux_entry.num_include_files; ++j)
+        for (auto j = 0u; j < aux_entry.included_files.size(); ++j)
         {
-            aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.include_entries[j].includepath_absolute);
+            aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.included_files[j].c_str());
         }
-        for (auto j = aux_entry.num_include_files; j < sc_max_num_includes; ++j)
+        for (auto j = aux_entry.included_files.size(); j < sc_max_num_includes; ++j)
         {
             aux_entry.include_flags[j] = nullptr;
         }
@@ -199,7 +198,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
             }
             else
             {
-                for (auto j = 0u; j < entry.num_include_files; ++j)
+                for (auto j = 0u; j < entry.included_files.size(); ++j)
                 {
                     if (entry.include_flags[j]->isChanged())
                     {
@@ -296,8 +295,7 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
     {
         dxcw::FileWatch::SharedFlag main_flag;
         dxcw::FileWatch::SharedFlag include_flags[sc_max_num_includes];
-        dxcw::include_entry include_entries[sc_max_num_includes];
-        unsigned num_include_files = 0;
+        cc::vector<cc::string> included_files;
         bool was_last_compilation_successful = true;
     };
 
@@ -322,14 +320,14 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
     }
 
     auto f_refresh_includes = [&](auxilliary_watch_entry& aux_entry, char const* shader_path) -> void {
-        aux_entry.num_include_files = dxcw::parse_includes(shader_path, base_path_fs.c_str(), aux_entry.include_entries, sc_max_num_includes);
+        aux_entry.included_files = dxcw::parse_includes(shader_path, base_path_fs.c_str());
 
-        for (auto j = 0u; j < aux_entry.num_include_files; ++j)
+        for (auto j = 0u; j < aux_entry.included_files.size(); ++j)
         {
             // DXCW_LOG("parsed include #{} for aux {}: {}", j, shader_path, aux_entry.include_entries[j].includepath_absolute);
-            aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.include_entries[j].includepath_absolute);
+            aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.included_files[j].c_str());
         }
-        for (auto j = aux_entry.num_include_files; j < sc_max_num_includes; ++j)
+        for (auto j = aux_entry.included_files.size(); j < sc_max_num_includes; ++j)
         {
             aux_entry.include_flags[j] = nullptr;
         }
@@ -552,7 +550,7 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
             }
             else
             {
-                for (auto j = 0u; j < entry.num_include_files; ++j)
+                for (auto j = 0u; j < entry.included_files.size(); ++j)
                 {
                     if (entry.include_flags[j]->isChanged())
                     {
@@ -582,7 +580,7 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
             }
             else
             {
-                for (auto j = 0u; j < entry.num_include_files; ++j)
+                for (auto j = 0u; j < entry.included_files.size(); ++j)
                 {
                     if (entry.include_flags[j]->isChanged())
                     {

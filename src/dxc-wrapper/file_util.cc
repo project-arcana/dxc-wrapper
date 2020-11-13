@@ -10,6 +10,8 @@
 
 #include <clean-core/alloc_array.hh>
 #include <clean-core/assert.hh>
+#include <clean-core/string.hh>
+#include <clean-core/vector.hh>
 
 #include <dxc-wrapper/common/log.hh>
 #include <dxc-wrapper/common/tinyjson.hh>
@@ -902,25 +904,23 @@ l_parse_error:
     return false;
 }
 
-unsigned dxcw::parse_includes(const char* source_path, const char* include_path, dxcw::include_entry* out_include_entries, unsigned max_num_out)
-{
-    CC_ASSERT(out_include_entries != nullptr && max_num_out > 0 && "Output must not be empty");
 
+cc::vector<cc::string> dxcw::parse_includes(const char* source_path, const char* include_path)
+{
     std::error_code ec;
     auto const include_path_fs = std::filesystem::canonical(include_path, ec);
     if (ec)
     {
-        return 0;
+        return {};
     }
 
     unsigned num_includes = 0;
 
+    cc::vector<cc::string> res_includes;
+
     std::string line;
     std::string token1;
     std::string token2;
-
-    if (out_include_entries == nullptr)
-        max_num_out = 0;
 
     auto const f_add_file = [&](char const* path, unsigned num_prev_includes) -> unsigned {
         std::fstream in_file(path);
@@ -972,9 +972,9 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
 
                 // check if already existing
                 bool preexists = false;
-                for (auto i = 0u; i < num_prev_includes + num_added_includes; ++i)
+                for (auto const& include : res_includes)
                 {
-                    if (std::strcmp(out_include_entries[i].includepath_absolute, absolute_include.c_str()) == 0)
+                    if (std::strcmp(include.c_str(), absolute_include.c_str()) == 0)
                     {
                         // printf("        - found include %s which already exists\n", absolute_include.c_str());
                         preexists = true;
@@ -984,14 +984,7 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
 
                 if (!preexists)
                 {
-                    auto const next_index = num_prev_includes + num_added_includes;
-                    if (next_index >= max_num_out)
-                    {
-                        return num_added_includes;
-                    }
-
-                    DXCW_STRNCPY(out_include_entries[next_index].includepath_absolute, absolute_include.c_str(),
-                                 sizeof(out_include_entries[0].includepath_absolute));
+                    res_includes.emplace_back(absolute_include.c_str());
                     ++num_added_includes;
                 }
             }
@@ -1008,7 +1001,7 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
     do
     {
         if (include_cursor >= 0)
-            next_file_to_add = out_include_entries[include_cursor].includepath_absolute;
+            next_file_to_add = res_includes[include_cursor].c_str();
 
         //        printf("    cursor %d, num_includes: %u, next file: %s\n", include_cursor, num_includes, next_file_to_add);
 
@@ -1021,7 +1014,7 @@ unsigned dxcw::parse_includes(const char* source_path, const char* include_path,
 
     } while (unsigned(include_cursor) < num_includes);
 
-    return num_includes;
+    return res_includes;
 }
 
 bool dxcw::parse_target(const char* str, dxcw::target& out_tgt)

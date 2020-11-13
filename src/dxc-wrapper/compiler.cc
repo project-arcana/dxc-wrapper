@@ -98,6 +98,30 @@ char const* get_output_type_literal(dxcw::output output) { return (output == dxc
 }
 
 void verify_hres(HRESULT hres) { CC_RUNTIME_ASSERT(SUCCEEDED(hres) && "DXC operation failed"); }
+
+// NOTE: this could be expanded to a "passthrough" include handler to obtain
+// all included paths, but it's a mess to get COM inheritance to work fully (IUnknown, QI etc.)
+// struct PassthroughDXCIncludeHandler final : public IDxcIncludeHandler
+//{
+//    HRESULT STDMETHODCALLTYPE LoadSource(LPCWSTR filename, IDxcBlob** ppIncludeSource) override
+//    {
+//        return mDefaultIncludeHandler->LoadSource(filename, ppIncludeSource);
+//    }
+
+//    void initialize(IDxcLibrary* library)
+//    {
+//        // create the real include handler
+//        verify_hres(library->CreateIncludeHandler(&mDefaultIncludeHandler));
+//    }
+
+//    void destroy()
+//    {
+//        mDefaultIncludeHandler->Release();
+//        mDefaultIncludeHandler = nullptr;
+//    }
+
+//    IDxcIncludeHandler* mDefaultIncludeHandler = nullptr;
+//};
 }
 
 void dxcw::compiler::initialize()

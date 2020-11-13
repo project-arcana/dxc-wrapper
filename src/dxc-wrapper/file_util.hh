@@ -114,10 +114,6 @@ struct shaderlist_library_entry_owning
     uint8_t num_exports;
 };
 
-unsigned parse_includes(char const* source_path, char const* include_path, include_entry* out_include_entries, unsigned max_num_out);
-
-struct include_entry
-{
-    char includepath_absolute[1024];
-};
+/// recursively parses all #include directories, resolves them to absolute paths, and returns a unique list
+cc::vector<cc::string> parse_includes(char const* source_path, char const* include_path);
 }
