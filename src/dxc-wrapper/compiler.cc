@@ -99,29 +99,12 @@ char const* get_output_type_literal(dxcw::output output) { return (output == dxc
 
 void verify_hres(HRESULT hres) { CC_RUNTIME_ASSERT(SUCCEEDED(hres) && "DXC operation failed"); }
 
-// NOTE: this could be expanded to a "passthrough" include handler to obtain
-// all included paths, but it's a mess to get COM inheritance to work fully (IUnknown, QI etc.)
-// struct PassthroughDXCIncludeHandler final : public IDxcIncludeHandler
-//{
-//    HRESULT STDMETHODCALLTYPE LoadSource(LPCWSTR filename, IDxcBlob** ppIncludeSource) override
-//    {
-//        return mDefaultIncludeHandler->LoadSource(filename, ppIncludeSource);
-//    }
-
-//    void initialize(IDxcLibrary* library)
-//    {
-//        // create the real include handler
-//        verify_hres(library->CreateIncludeHandler(&mDefaultIncludeHandler));
-//    }
-
-//    void destroy()
-//    {
-//        mDefaultIncludeHandler->Release();
-//        mDefaultIncludeHandler = nullptr;
-//    }
-
-//    IDxcIncludeHandler* mDefaultIncludeHandler = nullptr;
-//};
+#define DEFER_RELEASE(_ptr_)  \
+    CC_DEFER                  \
+    {                         \
+        if (_ptr_)            \
+            _ptr_->Release(); \
+    }
 }
 
 void dxcw::compiler::initialize()
@@ -158,13 +141,8 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
                                             char const* opt_defines,
                                             cc::allocator* scratch_alloc)
 {
-#define DEFER_RELEASE(_ptr_)  \
-    CC_DEFER                  \
-    {                         \
-        if (_ptr_)            \
-            _ptr_->Release(); \
-    }
-
+    CC_CONTRACT(raw_text);
+    CC_CONTRACT(entrypoint);
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
     wchar_t include_path_wide[1024];
@@ -173,7 +151,10 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
 
     IDxcBlobEncoding* encoding = nullptr;
     DEFER_RELEASE(encoding);
-    _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
+
+    auto const raw_text_length = uint32_t(std::strlen(raw_text));
+    CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
+    _lib->CreateBlobWithEncodingFromPinned(raw_text, raw_text_length, CP_UTF8, &encoding);
 
     cc::capped_vector<LPCWSTR, 27> compile_arguments;
 
@@ -259,6 +240,10 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
     {
         DXCW_LOG_ERROR(R"(shader "{}", entrypoint "{}" ({}):)", opt_filename_for_errors, entrypoint, get_output_type_literal(output));
         DXCW_LOG_ERROR("{}", static_cast<char const*>(pErrors->GetBufferPointer()));
+
+        //        DXCW_LOG_ERROR("include root: {}", opt_additional_include_paths);
+        //        DXCW_LOG_ERROR("working dir: {}", std::filesystem::current_path().string().c_str());
+        //        DXCW_LOG_ERROR("compiling primary source of {} chars", raw_text_length);
     }
 
     // Quit on failure
@@ -298,13 +283,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                              const char* opt_defines,
                                              cc::allocator* scratch_alloc)
 {
-#define DEFER_RELEASE(_ptr_)  \
-    CC_DEFER                  \
-    {                         \
-        if (_ptr_)            \
-            _ptr_->Release(); \
-    }
-
+    CC_CONTRACT(raw_text);
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
     wchar_t include_path_wide[1024];
@@ -312,9 +291,12 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
 
     IDxcBlobEncoding* encoding = nullptr;
     DEFER_RELEASE(encoding);
-    _lib->CreateBlobWithEncodingFromPinned(raw_text, static_cast<uint32_t>(std::strlen(raw_text)), CP_UTF8, &encoding);
 
-    cc::alloc_array<LPCWSTR> compile_argument_ptrs = cc::alloc_array<LPCWSTR>::uninitialized(29 + exports.size() * 2, scratch_alloc);
+    auto const raw_text_length = uint32_t(std::strlen(raw_text));
+    CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
+    _lib->CreateBlobWithEncodingFromPinned(raw_text, raw_text_length, CP_UTF8, &encoding);
+
+    auto compile_argument_ptrs = cc::alloc_array<LPCWSTR>::uninitialized(29 + exports.size() * 2, scratch_alloc);
     unsigned num_compile_arguments = 0;
 
     auto const f_add_compile_arg = [&](wchar_t const* str) {

@@ -923,7 +923,7 @@ cc::vector<cc::string> dxcw::parse_includes(const char* source_path, const char*
     std::string token2;
 
     auto const f_add_file = [&](char const* path, unsigned num_prev_includes) -> unsigned {
-        std::fstream in_file(path);
+        std::ifstream in_file(path, std::ios_base::in | std::ios_base::binary);
         if (!in_file.good())
             return 0;
 
