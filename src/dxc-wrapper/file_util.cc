@@ -907,6 +907,7 @@ l_parse_error:
 
 cc::vector<cc::string> dxcw::parse_includes(const char* source_path, const char* include_path)
 {
+    CC_CONTRACT(include_path);
     std::error_code ec;
     auto const include_path_fs = std::filesystem::canonical(include_path, ec);
     if (ec)
