@@ -15,10 +15,17 @@
 // DXC assumes that clang has support for UUIDs, Clang 7 at least does not have it
 // this define is used in dxc/Support/WinAdapter.h
 
+#ifdef CC_COMPILER_CLANG
+// suppress clang warning about __EMULATE_UUID being a reserved macro ID
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wreserved-id-macro"
+#endif
+
 #define __EMULATE_UUID 1
+
+#ifdef CC_COMPILER_CLANG
 #pragma GCC diagnostic pop
+#endif
 
 #endif
 
