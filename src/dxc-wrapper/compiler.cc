@@ -7,7 +7,17 @@
 #include <clean-core/macros.hh>
 
 #ifdef CC_OS_WINDOWS
+
+// clang-format off
+//#include <clean-core/native/detail/win32_sanitize_before.inl> // WIN32_LEAN_AND_MEAN kills features we require here
+
+struct IUnknown;
+#pragma warning(push, 0)
+
 #include <Windows.h>
+#include <clean-core/native/detail/win32_sanitize_after.inl> // this is still reasonable, (undef min, max, etc.)
+// clang-format on
+
 #else
 
 #ifdef CC_COMPILER_POSIX
