@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(dxc-wrapper)
+project(DirectXShaderCompilerWrapper)
 
 # ===============================================
 # Global settings
@@ -18,14 +18,14 @@ add_subdirectory(extern/dxc)
 # ===============================================
 # configure executable
 
-file(GLOB_RECURSE SOURCES "src/*.cc" "src/*.hh")
+file(GLOB_RECURSE SOURCES "src/*.cc")
+file(GLOB_RECURSE HEADERS "src/*.hh")
 
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" FILES ${SOURCES})
+arcana_add_library(DXCW dxc-wrapper SOURCES HEADERS)
 
-add_library(${PROJECT_NAME} STATIC ${SOURCES})
+target_include_directories(dxc-wrapper PUBLIC src/)
 
-target_include_directories(${PROJECT_NAME} PUBLIC src/)
-target_link_libraries(${PROJECT_NAME} PUBLIC
+target_link_libraries(dxc-wrapper PUBLIC
     clean-core
     rich-log
     dxc-wrap

@@ -1,3 +1,6 @@
+#pragma once
+
+#include <dxc-wrapper/common/api.hh>
 
 /*
 
@@ -80,7 +83,7 @@ extern "C"
      * @retval Null pointer if any was wrong in the parse process.
      * @retval If the parser process was successfully a valid handler of a json.
      *         This property is always unnamed and its type is JSON_OBJ. */
-    json_t const* json_create(char* str, json_t mem[], unsigned int qty);
+    DXCW_API json_t const* json_create(char* str, json_t mem[], unsigned int qty);
 
     /** Get the name of a json property.
      * @param json A valid handler of a json property.
@@ -110,7 +113,7 @@ extern "C"
      * @param property The name of property to get.
      * @retval The handler of the json property if found.
      * @retval Null pointer if not found. */
-    json_t const* json_getProperty(json_t const* obj, char const* property);
+    DXCW_API json_t const* json_getProperty(json_t const* obj, char const* property);
 
 
     /** Search a property by its name in a JSON object and return its value.
@@ -118,7 +121,7 @@ extern "C"
      * @param property The name of property to get.
      * @retval If found a pointer to null-terminated string with the value.
      * @retval Null pointer if not found or it is an array or an object. */
-    char const* json_getPropertyValue(json_t const* obj, char const* property);
+    DXCW_API char const* json_getPropertyValue(json_t const* obj, char const* property);
 
     /** Get the first property of a JSON object or array.
      * @param json A valid handler of a json property.
@@ -157,7 +160,7 @@ extern "C"
      * @retval Null pointer if any was wrong in the parse process.
      * @retval If the parser process was successfully a valid handler of a json.
      *         This property is always unnamed and its type is JSON_OBJ. */
-    json_t const* json_createWithPool(char* str, jsonPool_t* pool);
+    DXCW_API json_t const* json_createWithPool(char* str, jsonPool_t* pool);
 
     /** @ } */
 

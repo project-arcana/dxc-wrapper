@@ -5,6 +5,8 @@
 
 #include <clean-core/fwd.hh>
 
+#include <dxc-wrapper/common/api.hh>
+
 struct IDxcBlob;
 struct IDxcLibrary;
 struct IDxcCompiler3;
@@ -13,7 +15,7 @@ struct IDxcIncludeHandler;
 
 namespace dxcw
 {
-struct binary
+struct DXCW_API binary
 {
     binary() = default;
     binary(IDxcBlob* blob);
@@ -23,8 +25,8 @@ struct binary
     size_t size = 0;
 };
 
-void destroy_blob(IDxcBlob* blob);
-void destroy(binary const& b);
+DXCW_API void destroy_blob(IDxcBlob* blob);
+DXCW_API void destroy(binary const& b);
 
 enum class target : uint8_t
 {
@@ -59,7 +61,7 @@ struct library_export
     char const* export_name = nullptr;   ///< name of the export as it will be visible in the binary (same as internal if nullptr)
 };
 
-struct compiler
+struct DXCW_API compiler
 {
 public:
     void initialize();
