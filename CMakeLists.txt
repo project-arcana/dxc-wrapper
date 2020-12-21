@@ -8,7 +8,7 @@ project(DirectXShaderCompilerWrapper)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(DXCWRAP_BUILD_STANDALONE "Build a standalone executable" OFF)
+option(DXCW_BUILD_STANDALONE "Build a standalone executable" OFF)
 
 # ===============================================
 # add submodules
@@ -32,11 +32,12 @@ target_link_libraries(dxc-wrapper PUBLIC
 )
 
 if (NOT MSVC)
-    target_link_libraries(${PROJECT_NAME} PUBLIC
+    target_link_libraries(dxc-wrapper PUBLIC
         -lstdc++fs
     )
 endif()
 
-if (DXCWRAP_BUILD_STANDALONE)
+# second option for compat
+if (DXCW_BUILD_STANDALONE)
     add_subdirectory(standalone)
 endif()
