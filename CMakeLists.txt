@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
+cmake_policy(SET CMP0077 NEW) # make option() ignore normal variables
 project(DirectXShaderCompilerWrapper)
 
 # ===============================================
