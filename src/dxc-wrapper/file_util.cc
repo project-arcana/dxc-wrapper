@@ -50,39 +50,6 @@ cc::alloc_array<char> read_file(char const* path, cc::allocator* alloc)
     res[res.size() - 1] = '\0';
     return res;
 }
-
-bool parse_target(char const* str, dxcw::target& out_tgt)
-{
-    if (!str)
-    {
-        return false;
-    }
-
-    // first char is enough
-    switch (str[0])
-    {
-    case 'v':
-        out_tgt = dxcw::target::vertex;
-        return true;
-    case 'h':
-        out_tgt = dxcw::target::hull;
-        return true;
-    case 'd':
-        out_tgt = dxcw::target::domain;
-        return true;
-    case 'g':
-        out_tgt = dxcw::target::geometry;
-        return true;
-    case 'p':
-        out_tgt = dxcw::target::pixel;
-        return true;
-    case 'c':
-        out_tgt = dxcw::target::compute;
-        return true;
-    default:
-        return false;
-    }
-}
 }
 
 bool dxcw::write_binary_to_file(const dxcw::binary& binary, const char* path, const char* ending)
