@@ -73,7 +73,7 @@ public:
     /// \param entrypoint                       - name of the entrypoint function
     /// \param target                           - shader stage
     /// \param output                           - output format, DXIL (D3D12) or SPIR-V (Vulkan)
-    /// \param build_debug_info                 - whether to build debug information (.pdb, -Zi flag)
+    /// \param build_debug                      - disable optimizations (-Od) and embed PDB information into binary (-Zi, -Qembed_debug)
     /// \param opt_additional_include_paths     - additional paths used for #include directive resolution (optional)
     /// \param opt_filename_for_errors          - filename that is logged if errors occur during compilation (optional)
     /// \param opt_defines                      - defines as a comma separated list (ex.: "MYVAL=1,WITH_IBL=0") (optional)
@@ -84,7 +84,7 @@ public:
                                         char const* entrypoint,
                                         target target,
                                         output output,
-                                        bool build_debug_info = false,
+                                        bool build_debug = false,
                                         char const* opt_additional_include_paths = nullptr,
                                         char const* opt_filename_for_errors = nullptr,
                                         char const* opt_defines = nullptr,
@@ -95,7 +95,7 @@ public:
     /// \param raw_text                         - the HLsL code (ascii text)
     /// \param exports                          - internal and exported name per export
     /// \param output                           - output format, DXIL (D3D12) or SPIR-V (Vulkan)
-    /// \param build_debug_info                 - whether to build debug information (.pdb, -Zi flag)
+    /// \param build_debug                      - disable optimizations (-Od) and embed PDB information into binary (-Zi, -Qembed_debug)
     /// \param opt_additional_include_paths     - additional paths used for #include directive resolution (optional)
     /// \param opt_filename_for_errors          - filename that is logged if errors occur during compilation (optional)
     /// \param opt_defines                      - defines as a comma separated list (ex.: "MYVAL=1,WITH_IBL=0") (optional)
@@ -105,7 +105,7 @@ public:
     [[nodiscard]] binary compile_library(char const* raw_text,
                                          cc::span<library_export const> exports,
                                          output output,
-                                         bool build_debug_info = false,
+                                         bool build_debug = false,
                                          char const* opt_additional_include_paths = nullptr,
                                          char const* opt_filename_for_errors = nullptr,
                                          char const* opt_defines = nullptr,

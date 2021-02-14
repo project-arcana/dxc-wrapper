@@ -152,7 +152,7 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
                                             const char* entrypoint,
                                             dxcw::target target,
                                             dxcw::output output,
-                                            bool build_debug_info,
+                                            bool build_debug,
                                             char const* opt_additional_include_paths,
                                             char const* opt_filename_for_errors,
                                             char const* opt_defines,
@@ -173,7 +173,7 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
     CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
     _lib->CreateBlobWithEncodingFromPinned(raw_text, raw_text_length, CP_UTF8, &encoding);
 
-    cc::capped_vector<LPCWSTR, 27> compile_arguments;
+    cc::capped_vector<LPCWSTR, 30> compile_arguments;
 
     if (opt_filename_for_errors)
     {
@@ -218,8 +218,16 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
         compile_arguments.push_back(include_path_wide);
     }
 
-    if (build_debug_info)
-        compile_arguments.push_back(L"-Zi");
+    if (build_debug)
+    {
+        compile_arguments.push_back(L"-Od");           // disable optimization
+        compile_arguments.push_back(L"-Zi");           // -Zi: build debug information
+        compile_arguments.push_back(L"-Qembed_debug"); // embed debug info as opposed to creating a PDB
+    }
+    else
+    {
+        compile_arguments.push_back(L"-O3"); // full optimization
+    }
 
     // profile target
     compile_arguments.push_back(L"-T");
@@ -272,29 +280,16 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
         return binary{nullptr};
     }
 
-
     // Return binary blob
     IDxcBlob* pShader = nullptr;
     result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), nullptr);
     return binary{pShader};
-
-    // Save pdb
-    //    IDxcBlob* pPDB = nullptr;
-    //    IDxcBlobUtf16* pPDBName = nullptr;
-    //    result->GetOutput(DXC_OUT_PDB, IID_PPV_ARGS(&pPDB), &pPDBName);
-    //    {
-    //        FILE* fp = NULL;
-
-    //        // Note that if you don't specify -Fd, a pdb name will be automatically generated. Use this file name to save the pdb so that PIX can
-    //        find it quickly. _wfopen_s(&fp, pPDBName->GetStringPointer(), L"wb"); fwrite(pPDB->GetBufferPointer(), pPDB->GetBufferSize(), 1, fp);
-    //        fclose(fp);
-    //    }
 }
 
 dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                              cc::span<const library_export> exports,
                                              dxcw::output output,
-                                             bool build_debug_info,
+                                             bool build_debug,
                                              const char* opt_additional_include_paths,
                                              const char* opt_filename_for_errors,
                                              const char* opt_defines,
@@ -313,7 +308,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
     _lib->CreateBlobWithEncodingFromPinned(raw_text, raw_text_length, CP_UTF8, &encoding);
 
-    auto compile_argument_ptrs = cc::alloc_array<LPCWSTR>::uninitialized(29 + exports.size() * 2, scratch_alloc);
+    auto compile_argument_ptrs = cc::alloc_array<LPCWSTR>::uninitialized(32 + exports.size() * 2, scratch_alloc);
     unsigned num_compile_arguments = 0;
 
     auto const f_add_compile_arg = [&](wchar_t const* str) {
@@ -368,8 +363,17 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
         f_add_compile_arg(include_path_wide);
     }
 
-    if (build_debug_info)
-        f_add_compile_arg(L"-Zi");
+
+    if (build_debug)
+    {
+        f_add_compile_arg(L"-Od");           // disable optimization
+        f_add_compile_arg(L"-Zi");           // -Zi: build debug information
+        f_add_compile_arg(L"-Qembed_debug"); // embed debug info as opposed to creating a PDB
+    }
+    else
+    {
+        f_add_compile_arg(L"-O3"); // full optimization
+    }
 
     // defines
     cc::alloc_array<wchar_t> define_text;
@@ -479,26 +483,6 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     IDxcBlob* pShader = nullptr;
     result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), nullptr);
     return binary{pShader};
-
-
-    //    _reflection->Load(pShader);
-    //    UINT32 shaderIdx;
-    //    _reflection->FindFirstPartKind(hlsl::DFCC_DXIL, &shaderIdx);
-
-    //    return binary{pShader};
-
-
-    // Save pdb
-    //    IDxcBlob* pPDB = nullptr;
-    //    IDxcBlobUtf16* pPDBName = nullptr;
-    //    result->GetOutput(DXC_OUT_PDB, IID_PPV_ARGS(&pPDB), &pPDBName);
-    //    {
-    //        FILE* fp = NULL;
-
-    //        // Note that if you don't specify -Fd, a pdb name will be automatically generated. Use this file name to save the pdb so that PIX can
-    //        find it quickly. _wfopen_s(&fp, pPDBName->GetStringPointer(), L"wb"); fwrite(pPDB->GetBufferPointer(), pPDB->GetBufferSize(), 1, fp);
-    //        fclose(fp);
-    //    }
 }
 
 bool dxcw::compiler::print_version() const
