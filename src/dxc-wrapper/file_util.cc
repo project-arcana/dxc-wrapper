@@ -955,7 +955,7 @@ cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_pat
                 {
                     fixed_string& new_str = res_includes.emplace_back();
                     CC_ASSERT(absolute_include.size() <= sizeof(new_str.str) && "dxcw::fixed_string insufficient");
-                    std::strncpy(new_str.str, absolute_include.c_str(), sizeof(new_str.str));
+                    DXCW_STRNCPY(new_str.str, absolute_include.c_str(), sizeof(new_str.str));
                     ++num_added_includes;
                 }
             }
