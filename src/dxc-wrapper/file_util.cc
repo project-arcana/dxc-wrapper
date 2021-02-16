@@ -9,9 +9,9 @@
 #include <type_traits>
 
 #include <clean-core/alloc_array.hh>
+#include <clean-core/alloc_vector.hh>
 #include <clean-core/assert.hh>
 #include <clean-core/string.hh>
-#include <clean-core/vector.hh>
 
 #include <dxc-wrapper/common/log.hh>
 #include <dxc-wrapper/common/tinyjson.hh>
@@ -872,7 +872,7 @@ l_parse_error:
 }
 
 
-cc::vector<cc::string> dxcw::parse_includes(const char* source_path, const char* include_path)
+cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_path, const char* include_path, cc::allocator* alloc)
 {
     CC_CONTRACT(include_path);
     std::error_code ec;
@@ -884,7 +884,8 @@ cc::vector<cc::string> dxcw::parse_includes(const char* source_path, const char*
 
     unsigned num_includes = 0;
 
-    cc::vector<cc::string> res_includes;
+    cc::alloc_vector<fixed_string> res_includes;
+    res_includes.reset_reserve(alloc, 20);
 
     std::string line;
     std::string token1;
@@ -942,7 +943,7 @@ cc::vector<cc::string> dxcw::parse_includes(const char* source_path, const char*
                 bool preexists = false;
                 for (auto const& include : res_includes)
                 {
-                    if (std::strcmp(include.c_str(), absolute_include.c_str()) == 0)
+                    if (std::strcmp(include.str, absolute_include.c_str()) == 0)
                     {
                         // printf("        - found include %s which already exists\n", absolute_include.c_str());
                         preexists = true;
@@ -952,7 +953,9 @@ cc::vector<cc::string> dxcw::parse_includes(const char* source_path, const char*
 
                 if (!preexists)
                 {
-                    res_includes.emplace_back(absolute_include.c_str());
+                    fixed_string& new_str = res_includes.emplace_back();
+                    CC_ASSERT(absolute_include.size() <= sizeof(new_str.str) && "dxcw::fixed_string insufficient");
+                    std::strncpy(new_str.str, absolute_include.c_str(), sizeof(new_str.str));
                     ++num_added_includes;
                 }
             }
@@ -969,7 +972,9 @@ cc::vector<cc::string> dxcw::parse_includes(const char* source_path, const char*
     do
     {
         if (include_cursor >= 0)
-            next_file_to_add = res_includes[include_cursor].c_str();
+        {
+            next_file_to_add = res_includes[include_cursor].str;
+        }
 
         //        printf("    cursor %d, num_includes: %u, next file: %s\n", include_cursor, num_includes, next_file_to_add);
 

@@ -13,6 +13,7 @@ struct shaderlist_compilation_result;
 struct shaderlist_binary_entry_owning;
 struct shaderlist_library_entry_owning;
 struct include_entry;
+struct fixed_string;
 
 /// Parses the target from a string, ie "vs" -> dxcw::target::vertex
 DXCW_API bool parse_target(char const* str, dxcw::target& out_tgt);
@@ -95,6 +96,11 @@ DXCW_API bool parse_shaderlist_json(char const* shaderlist_file,
                                     unsigned& out_num_libraries,
                                     cc::allocator* scratch_alloc = cc::system_allocator);
 
+
+/// recursively parses all #include directories, resolves them to absolute paths, and returns a unique list
+DXCW_API cc::alloc_vector<fixed_string> parse_includes(char const* source_path, char const* include_path, cc::allocator* allocator = cc::system_allocator);
+
+
 struct shaderlist_binary_entry_owning
 {
     char pathin[1024];
@@ -115,6 +121,8 @@ struct shaderlist_library_entry_owning
     uint8_t num_exports;
 };
 
-/// recursively parses all #include directories, resolves them to absolute paths, and returns a unique list
-DXCW_API cc::vector<cc::string> parse_includes(char const* source_path, char const* include_path);
+struct fixed_string
+{
+    char str[512];
+};
 }
