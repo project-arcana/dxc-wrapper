@@ -122,6 +122,76 @@ void verify_hres(HRESULT hres) { CC_RUNTIME_ASSERT(SUCCEEDED(hres) && "DXC opera
         if (_ptr_)            \
             _ptr_->Release(); \
     }
+
+struct argument_memory
+{
+    cc::alloc_array<LPCWSTR> pointers;
+    size_t num_arguments = 0;
+
+    void initialize(size_t max_num_args, cc::allocator* alloc)
+    {
+        pointers = cc::alloc_array<LPCWSTR>::uninitialized(max_num_args, alloc);
+        num_arguments = 0;
+    }
+
+    void add_arg(wchar_t const* str)
+    {
+        CC_ASSERT(num_arguments < pointers.size() && "write OOB");
+        pointers[num_arguments] = str;
+        ++num_arguments;
+    }
+
+    void add_multiple_args(wchar_t const* const* strs, size_t num)
+    {
+        CC_ASSERT(num_arguments + num <= pointers.size() && "write OOB");
+        std::memcpy(pointers.data() + num_arguments, &strs[0], num * sizeof(wchar_t const*));
+        num_arguments += num;
+    }
+
+    LPCWSTR* get_data()
+    {
+        if (num_arguments == 0)
+        {
+            return nullptr;
+        }
+
+        return pointers.data();
+    }
+
+    uint32_t get_num() const { return uint32_t(num_arguments); }
+};
+
+struct widechar_memory
+{
+    cc::alloc_array<wchar_t> buffer;
+    size_t num_chars = 0;
+
+    void initialize(size_t max_num_chars, cc::allocator* alloc)
+    {
+        buffer = cc::alloc_array<wchar_t>::uninitialized(max_num_chars, alloc);
+        num_chars = 0;
+    }
+
+    wchar_t const* add_text(wchar_t const* text, size_t strlen)
+    {
+        CC_ASSERT(num_chars + strlen <= buffer.size() && "text write OOB");
+
+        wchar_t* const res = buffer.data() + num_chars;
+        std::memcpy(res, text, strlen * sizeof(wchar_t));
+        num_chars += strlen;
+
+        return res;
+    }
+
+    wchar_t const* convert_and_add_text(char const* text)
+    {
+        auto const destination_span = cc::span(buffer).subspan(num_chars, buffer.size() - num_chars);
+        auto const num_wchars_written = cc::char_to_widechar(destination_span, text);
+        num_chars += num_wchars_written + 1;
+
+        return destination_span.data();
+    }
+};
 }
 
 void dxcw::compiler::initialize()
@@ -155,16 +225,12 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
                                             bool build_debug,
                                             char const* opt_additional_include_paths,
                                             char const* opt_filename_for_errors,
-                                            char const* opt_defines,
+                                            cc::span<char const*> opt_defines,
                                             cc::allocator* scratch_alloc)
 {
     CC_CONTRACT(raw_text);
     CC_CONTRACT(entrypoint);
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
-
-    wchar_t include_path_wide[1024];
-    wchar_t opt_filename_wide[1024];
-    wchar_t entrypoint_wide[64];
 
     IDxcBlobEncoding* encoding = nullptr;
     DEFER_RELEASE(encoding);
@@ -173,13 +239,21 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
     CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
     _lib->CreateBlobWithEncodingFromPinned(raw_text, raw_text_length, CP_UTF8, &encoding);
 
-    cc::capped_vector<LPCWSTR, 30> compile_arguments;
+    widechar_memory wmem;
+    size_t num_chars_defines = 0;
+    for (char const* const define : opt_defines)
+    {
+        num_chars_defines += std::strlen(define) + 1;
+    }
+    wmem.initialize(1024 + 1024 + 1024 + num_chars_defines, scratch_alloc);
+
+    argument_memory argmem;
+    argmem.initialize(30, scratch_alloc);
 
     if (opt_filename_for_errors)
     {
-        cc::char_to_widechar(opt_filename_wide, opt_filename_for_errors);
         // the filename for errors is simply any non-flag argument to the compilation
-        compile_arguments.push_back(opt_filename_wide);
+        argmem.add_arg(wmem.convert_and_add_text(opt_filename_for_errors));
     }
 
     if (output == output::spirv)
@@ -188,60 +262,53 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
 
         // -fvk-use-dx-layout: no std140/std430/other vulkan-specific layouting, behave just like HLSL->D3D12
         // -fvk-b/t/u/s-shift: shift registers up to avoid overlap, phi-specific
-        compile_arguments = {
+        wchar_t const* spirv_args[] = {
             L"-spirv", L"-fspv-target-env=vulkan1.1", L"-fvk-use-dx-layout", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all", L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
+        argmem.add_multiple_args(spirv_args, CC_COUNTOF(spirv_args));
 
         if (target == target::vertex || target == target::geometry || target == target::domain)
         {
             // -fvk-invert-y (only in vs/gs/ds): line up vulkans flipped viewport to behave just like HLSL->D3D12
-            compile_arguments.push_back(L"-fvk-invert-y");
+            argmem.add_arg(L"-fvk-invert-y");
         }
     }
     else if (output == output::dxil)
     {
         // suppress warnings about [[vk::push_constant]] when compiling to dxil
-        compile_arguments.push_back(L"-Wno-ignored-attributes");
+        argmem.add_arg(L"-Wno-ignored-attributes");
     }
 
     // entrypoint
-    cc::char_to_widechar(entrypoint_wide, entrypoint);
-
-    compile_arguments.push_back(L"-E");
-    compile_arguments.push_back(entrypoint_wide);
+    argmem.add_arg(L"-E");
+    argmem.add_arg(wmem.convert_and_add_text(entrypoint));
 
     // include paths
     if (opt_additional_include_paths != nullptr)
     {
-        cc::char_to_widechar(include_path_wide, opt_additional_include_paths);
-
-        compile_arguments.push_back(L"-I");
-        compile_arguments.push_back(include_path_wide);
+        argmem.add_arg(L"-I");
+        argmem.add_arg(wmem.convert_and_add_text(opt_additional_include_paths));
     }
 
     if (build_debug)
     {
-        compile_arguments.push_back(L"-Od");           // disable optimization
-        compile_arguments.push_back(L"-Zi");           // -Zi: build debug information
-        compile_arguments.push_back(L"-Qembed_debug"); // embed debug info as opposed to creating a PDB
+        argmem.add_arg(L"-Od");           // disable optimization
+        argmem.add_arg(L"-Zi");           // -Zi: build debug information
+        argmem.add_arg(L"-Qembed_debug"); // embed debug info as opposed to creating a PDB
     }
     else
     {
-        compile_arguments.push_back(L"-O3"); // full optimization
+        argmem.add_arg(L"-O3"); // full optimization
     }
 
     // profile target
-    compile_arguments.push_back(L"-T");
-    compile_arguments.push_back(get_profile_literal(target));
+    argmem.add_arg(L"-T");
+    argmem.add_arg(get_profile_literal(target));
 
     // defines
-    cc::alloc_array<wchar_t> define_text;
-    if (opt_defines != nullptr)
+    for (char const* const define : opt_defines)
     {
-        define_text = cc::alloc_array<wchar_t>::uninitialized(std::strlen(opt_defines), scratch_alloc);
-        cc::char_to_widechar(define_text, opt_defines);
-
-        compile_arguments.push_back(L"-D");
-        compile_arguments.push_back(define_text.data());
+        argmem.add_arg(L"-D");
+        argmem.add_arg(wmem.convert_and_add_text(define));
     }
 
     DxcBuffer source_buffer;
@@ -251,14 +318,16 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
 
     IDxcResult* result = nullptr;
     DEFER_RELEASE(result);
-    _compiler->Compile(&source_buffer, compile_arguments.empty() ? nullptr : compile_arguments.data(), uint32_t(compile_arguments.size()),
-                       _include_handler, IID_PPV_ARGS(&result));
+    _compiler->Compile(&source_buffer, argmem.get_data(), argmem.get_num(), _include_handler, IID_PPV_ARGS(&result));
 
 
     // Print errors and warning if present
     IDxcBlobUtf8* pErrors = nullptr;
+    IDxcBlobUtf16* pOutputName = nullptr;
     DEFER_RELEASE(pErrors);
-    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), nullptr);
+    DEFER_RELEASE(pOutputName);
+    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), &pOutputName);
+
     // Note that d3dcompiler would return null if no errors or warnings are present.
     // IDxcCompiler3::Compile will always return an error buffer, but its length will be zero if there are no warnings or errors.
     if (pErrors != nullptr && pErrors->GetStringLength() != 0)
@@ -343,7 +412,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                        //                                       L"-fspv-extension=SPV_NV_ray_tracing",
                                        L"-fvk-use-dx-layout", L"-fspv-reflect", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all",
                                        L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
-        f_add_multiple_compile_args(spirv_args, sizeof(spirv_args) / sizeof(spirv_args[0]));
+        f_add_multiple_compile_args(spirv_args, CC_COUNTOF(spirv_args));
     }
     else if (output == output::dxil)
     {
@@ -387,7 +456,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     }
 
     // exports
-    auto export_text = cc::alloc_array<wchar_t>::uninitialized(exports.size() * 128);
+    auto export_text = cc::alloc_array<wchar_t>::uninitialized(exports.size() * 128, scratch_alloc);
     unsigned num_chars_export_text = 0;
 
     [[maybe_unused]] auto const f_add_export_wchars = [&](wchar_t const* text, unsigned strlen) {

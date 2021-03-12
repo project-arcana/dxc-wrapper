@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include <clean-core/fwd.hh>
+#include <clean-core/span.hh>
 
 #include <dxc-wrapper/common/api.hh>
 
@@ -76,7 +77,7 @@ public:
     /// \param build_debug                      - disable optimizations (-Od) and embed PDB information into binary (-Zi, -Qembed_debug)
     /// \param opt_additional_include_paths     - additional paths used for #include directive resolution (optional)
     /// \param opt_filename_for_errors          - filename that is logged if errors occur during compilation (optional)
-    /// \param opt_defines                      - defines as a comma separated list (ex.: "MYVAL=1,WITH_IBL=0") (optional)
+    /// \param opt_defines                      - defines (ex.: "MYVAL=1", "WITH_IBL=0", "HAS_EMISSIVE") (optional)
     /// \param scratch_alloc                    - allocator used for scratch memory required during compilation
     /// \return binary data, can outlive compiler, must be freed using dxcw::destroy
     ///
@@ -87,7 +88,7 @@ public:
                                         bool build_debug = false,
                                         char const* opt_additional_include_paths = nullptr,
                                         char const* opt_filename_for_errors = nullptr,
-                                        char const* opt_defines = nullptr,
+                                        cc::span<char const*> opt_defines = {},
                                         cc::allocator* scratch_alloc = cc::system_allocator);
 
     ///
