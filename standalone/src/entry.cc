@@ -98,7 +98,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
     {
         dxcw::FileWatch::SharedFlag main_flag;
         dxcw::FileWatch::SharedFlag include_flags[sc_max_num_includes];
-        cc::vector<cc::string> included_files;
+        cc::alloc_vector<dxcw::fixed_string> included_files;
         bool was_last_compilation_successful = true;
     };
 
@@ -119,7 +119,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
 
         for (auto j = 0u; j < aux_entry.included_files.size(); ++j)
         {
-            aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.included_files[j].c_str());
+            aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.included_files[j].str);
         }
         for (auto j = aux_entry.included_files.size(); j < sc_max_num_includes; ++j)
         {
@@ -295,7 +295,7 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
     {
         dxcw::FileWatch::SharedFlag main_flag;
         dxcw::FileWatch::SharedFlag include_flags[sc_max_num_includes];
-        cc::vector<cc::string> included_files;
+        cc::alloc_vector<dxcw::fixed_string> included_files;
         bool was_last_compilation_successful = true;
     };
 
@@ -325,7 +325,7 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
         for (auto j = 0u; j < aux_entry.included_files.size(); ++j)
         {
             // DXCW_LOG("parsed include #{} for aux {}: {}", j, shader_path, aux_entry.include_entries[j].includepath_absolute);
-            aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.included_files[j].c_str());
+            aux_entry.include_flags[j] = dxcw::FileWatch::watchFile(aux_entry.included_files[j].str);
         }
         for (auto j = aux_entry.included_files.size(); j < sc_max_num_includes; ++j)
         {
