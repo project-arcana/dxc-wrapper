@@ -162,7 +162,7 @@ bool dxcw::compile_library(dxcw::compiler& compiler,
     }
 
 #ifdef CC_OS_WINDOWS
-    auto dxil_binary = compiler.compile_library(content.data(), exports, dxcw::output::dxil, false, optional_include_dir, source_path, nullptr, scratch_alloc);
+    auto dxil_binary = compiler.compile_library(content.data(), exports, dxcw::output::dxil, false, optional_include_dir, source_path, {}, scratch_alloc);
 
     if (dxil_binary.internal_blob == nullptr)
         return false;
@@ -173,7 +173,7 @@ bool dxcw::compile_library(dxcw::compiler& compiler,
     // On non-windows, DXIL can be compiled but not signed which makes it mostly useless
     // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
 
-    auto spv_binary = compiler.compile_library(content.data(), exports, dxcw::output::spirv, false, optional_include_dir, source_path, nullptr, scratch_alloc);
+    auto spv_binary = compiler.compile_library(content.data(), exports, dxcw::output::spirv, false, optional_include_dir, source_path, {}, scratch_alloc);
     if (spv_binary.internal_blob == nullptr)
         return false;
 

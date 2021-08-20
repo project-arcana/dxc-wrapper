@@ -361,14 +361,11 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                              bool build_debug,
                                              const char* opt_additional_include_paths,
                                              const char* opt_filename_for_errors,
-                                             const char* opt_defines,
+                                             cc::span<char const*> opt_defines,
                                              cc::allocator* scratch_alloc)
 {
     CC_CONTRACT(raw_text);
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
-
-    wchar_t include_path_wide[1024];
-    wchar_t opt_filename_wide[1024];
 
     IDxcBlobEncoding* encoding = nullptr;
     DEFER_RELEASE(encoding);
@@ -376,27 +373,21 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     auto const raw_text_length = uint32_t(std::strlen(raw_text));
     CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
     _lib->CreateBlobWithEncodingFromPinned(raw_text, raw_text_length, CP_UTF8, &encoding);
+    widechar_memory wmem;
+    size_t num_chars_defines = 0;
+    for (char const* const define : opt_defines)
+    {
+        num_chars_defines += std::strlen(define) + 1;
+    }
+    wmem.initialize(1024 + 1024 + 1024 + num_chars_defines, scratch_alloc);
 
-    auto compile_argument_ptrs = cc::alloc_array<LPCWSTR>::uninitialized(32 + exports.size() * 2, scratch_alloc);
-    unsigned num_compile_arguments = 0;
-
-    auto const f_add_compile_arg = [&](wchar_t const* str) {
-        CC_ASSERT(num_compile_arguments < compile_argument_ptrs.size() && "write OOB");
-        compile_argument_ptrs[num_compile_arguments] = str;
-        ++num_compile_arguments;
-    };
-
-    auto const f_add_multiple_compile_args = [&](wchar_t const* const* strs, unsigned num) {
-        CC_ASSERT(num_compile_arguments + num <= compile_argument_ptrs.size() && "write OOB");
-        std::memcpy(compile_argument_ptrs.data() + num_compile_arguments, &strs[0], num * sizeof(wchar_t const*));
-        num_compile_arguments += num;
-    };
+    argument_memory argmem;
+    argmem.initialize(30, scratch_alloc);
 
     if (opt_filename_for_errors)
     {
-        cc::char_to_widechar(opt_filename_wide, opt_filename_for_errors);
         // the filename for errors is simply any non-flag argument to the compilation
-        f_add_compile_arg(opt_filename_wide);
+        argmem.add_arg(wmem.convert_and_add_text(opt_filename_for_errors));
     }
 
     if (output == output::spirv)
@@ -412,47 +403,42 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                        //                                       L"-fspv-extension=SPV_NV_ray_tracing",
                                        L"-fvk-use-dx-layout", L"-fspv-reflect", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all",
                                        L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
-        f_add_multiple_compile_args(spirv_args, CC_COUNTOF(spirv_args));
+        argmem.add_multiple_args(spirv_args, CC_COUNTOF(spirv_args));
     }
     else if (output == output::dxil)
     {
         // suppress warnings about [[vk::push_constant]] when compiling to dxil
-        f_add_compile_arg(L"-Wno-ignored-attributes");
+        argmem.add_arg(L"-Wno-ignored-attributes");
     }
 
-    f_add_compile_arg(L"-T");
-    f_add_compile_arg(L"lib_" DXCW_DEFAULT_SHADER_MODEL);
+    // profile target
+    argmem.add_arg(L"-T");
+    argmem.add_arg(L"lib_" DXCW_DEFAULT_SHADER_MODEL);
 
     // include paths
     if (opt_additional_include_paths != nullptr)
     {
-        cc::char_to_widechar(include_path_wide, opt_additional_include_paths);
-
-        f_add_compile_arg(L"-I");
-        f_add_compile_arg(include_path_wide);
+        argmem.add_arg(L"-I");
+        argmem.add_arg(wmem.convert_and_add_text(opt_additional_include_paths));
     }
 
 
     if (build_debug)
     {
-        f_add_compile_arg(L"-Od");           // disable optimization
-        f_add_compile_arg(L"-Zi");           // -Zi: build debug information
-        f_add_compile_arg(L"-Qembed_debug"); // embed debug info as opposed to creating a PDB
+        argmem.add_arg(L"-Od");           // disable optimization
+        argmem.add_arg(L"-Zi");           // -Zi: build debug information
+        argmem.add_arg(L"-Qembed_debug"); // embed debug info as opposed to creating a PDB
     }
     else
     {
-        f_add_compile_arg(L"-O3"); // full optimization
+        argmem.add_arg(L"-O3"); // full optimization
     }
 
     // defines
-    cc::alloc_array<wchar_t> define_text;
-    if (opt_defines != nullptr)
+    for (char const* const define : opt_defines)
     {
-        define_text = cc::alloc_array<wchar_t>::uninitialized(std::strlen(opt_defines), scratch_alloc);
-        cc::char_to_widechar(define_text, opt_defines);
-
-        f_add_compile_arg(L"-D");
-        f_add_compile_arg(define_text.data());
+        argmem.add_arg(L"-D");
+        argmem.add_arg(wmem.convert_and_add_text(define));
     }
 
     // exports
@@ -467,41 +453,42 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
 
     auto const f_add_export_entry_text = [&](char const* export_name, char const* internal_name) -> wchar_t const* {
         CC_ASSERT(internal_name != nullptr && "internal name is required on library exports");
+
+        // from dxc.exe -help:
+        //   -exports <value>        Specify exports when compiling a library: export1[[,export1_clone,...]=internal_name][;...]
         // form of export entries:
-        // <exported name>=<internal name>, f.e. closest_hit=MainClosestHit
+        // <export name>=<internal name>, f.e. closest_hit=MainClosestHit
+        // or only the export value if it's the same
+        // <export name>
 
         wchar_t const* const res = export_text.data() + num_chars_export_text;
 
-        // write the target
-        //  unsigned target_strlen;
-        // auto const target_as_wchar = get_library_export_name(tgt, target_strlen);
-        //  f_add_export_wchars(target_as_wchar, target_strlen);
-
-        // convert and write the export name
+        if (export_name)
         {
-            auto const num_wchars_written = cc::char_to_widechar(
-                cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), export_name ? export_name : internal_name);
-            num_chars_export_text += unsigned(num_wchars_written) + 1;
-        }
+            // convert and write the export name
 
-        // write the equals sign
-        export_text[num_chars_export_text] = L'=';
-        ++num_chars_export_text;
+            auto const num_wchars_written
+                = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), export_name);
+            num_chars_export_text += unsigned(num_wchars_written) + 1;
+
+            // write the equals sign
+            export_text[num_chars_export_text] = L'=';
+            ++num_chars_export_text;
+        }
 
         // convert and write the internal name
-        {
-            auto const num_wchars_written
-                = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), internal_name);
-            num_chars_export_text += unsigned(num_wchars_written) + 1;
-        }
+        auto const num_wchars_written
+            = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), internal_name);
+        num_chars_export_text += unsigned(num_wchars_written) + 1;
+
 
         return res;
     };
 
     for (auto const& exp : exports)
     {
-        f_add_compile_arg(L"-exports");
-        f_add_compile_arg(f_add_export_entry_text(exp.export_name, exp.internal_name));
+        argmem.add_arg(L"-exports");
+        argmem.add_arg(f_add_export_entry_text(exp.export_name, exp.internal_name));
     }
 
     DxcBuffer source_buffer;
@@ -511,8 +498,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
 
     IDxcResult* result = nullptr;
     DEFER_RELEASE(result);
-
-    _compiler->Compile(&source_buffer, compile_argument_ptrs.data(), num_compile_arguments, _include_handler, IID_PPV_ARGS(&result));
+    _compiler->Compile(&source_buffer, argmem.get_data(), argmem.get_num(), _include_handler, IID_PPV_ARGS(&result));
 
     // Print errors and warning if present
     IDxcBlobUtf8* pErrors = nullptr;
