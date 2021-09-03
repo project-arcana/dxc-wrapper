@@ -18,13 +18,14 @@ if (MSVC)
 
     # copy the dll to the runtime output folder post-build
     set(DXC_COPY_DLLS "${DXCW_ACTIVE_DXC_PATH}/bin/dxcompiler.dll" "${DXCW_ACTIVE_DXC_PATH}/bin/dxil.dll")
-
+	
+		# we are on MSVC meaning CMAKE_RUNTIME_OUTPUT_DIRECTORY does not contain the /Debug or /Release ending, add it manually
     foreach(file_i ${DXC_COPY_DLLS})
         add_custom_command(
             TARGET dxc-wrap POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${file_i}"
-            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIGURATION>"
         )
     endforeach()
 
