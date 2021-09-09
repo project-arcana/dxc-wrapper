@@ -4,6 +4,10 @@
 #include <cstdlib>
 #include <cwchar>
 
+#ifdef DXCW_HAS_OPTICK
+#include <optick/optick.h>
+#endif
+
 #include <clean-core/macros.hh>
 
 #ifdef CC_OS_WINDOWS
@@ -196,6 +200,10 @@ struct widechar_memory
 
 void dxcw::compiler::initialize()
 {
+#ifdef DXCW_HAS_OPTICK
+    OPTICK_EVENT();
+#endif
+
     CC_ASSERT(_lib == nullptr && "double initialize");
     verify_hres(DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&_lib)));
     verify_hres(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&_compiler)));
@@ -205,6 +213,10 @@ void dxcw::compiler::initialize()
 
 void dxcw::compiler::destroy()
 {
+#ifdef DXCW_HAS_OPTICK
+    OPTICK_EVENT();
+#endif
+
     if (_lib == nullptr)
         return;
 
@@ -228,6 +240,10 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
                                             cc::span<char const*> opt_defines,
                                             cc::allocator* scratch_alloc)
 {
+#ifdef DXCW_HAS_OPTICK
+    OPTICK_EVENT();
+#endif
+
     CC_CONTRACT(raw_text);
     CC_CONTRACT(entrypoint);
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
@@ -364,6 +380,10 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                              cc::span<char const*> opt_defines,
                                              cc::allocator* scratch_alloc)
 {
+#ifdef DXCW_HAS_OPTICK
+    OPTICK_EVENT();
+#endif
+
     CC_CONTRACT(raw_text);
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
