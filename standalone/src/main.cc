@@ -1,15 +1,19 @@
 #include <nexus/args.hh>
 
-#include <rich-log/logger.hh>
+#include <rich-log/StdOutLogger.hh>
 
 #include <dxc-wrapper/common/log.hh>
 
 #include "entry.hh"
 
+namespace
+{
+rlog::StdOutLogger gLogger(rlog::console_log_style::brief);
+}
+
 int main(int argc, char const* argv[])
 {
-    rlog::enable_win32_colors();
-    rlog::set_console_log_style(rlog::console_log_style::brief);
+    rlog::enableWin32ConsoleColors();
 
     bool is_watch_mode = false;
     bool is_display_version_mode = false;
