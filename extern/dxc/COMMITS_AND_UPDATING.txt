@@ -2,8 +2,9 @@
 This repo contains multiple versions of DXC - compiled binaries and required includes
 
 Current commit hashes
-7a8c4a20da905a736637595fc6111c3ce033ba21 - 31.01.2020 - ACTIVE
-d0fa5e301b4734a7261ac50f77e863d54ecc45e6 - 3.10.2020 - newer, but has several issues (SPIR-V RT_NV libraries, vk::push_constant attributes on ConstantBuffers)
+7a8c4a20da905a736637595fc6111c3ce033ba21 - 31.01.2020 - stable
+d0fa5e301b4734a7261ac50f77e863d54ecc45e6 - 3.10.2020 - has several issues (SPIR-V RT_NV libraries, vk::push_constant attributes on ConstantBuffers)
+dad1cfc308e4a0dd49b2589e10b5427803ea6a6e - 8.07.2021 (Release) - ACTIVE
 
 Commit hashes are from the DXC github repository, find them using URLs like
 https://github.com/microsoft/DirectXShaderCompiler/commit/7a8c4a20da905a736637595fc6111c3ce033ba21
@@ -23,3 +24,4 @@ How to update DXC:
 9. copy the entire include folder: from DirectXShaderCompiler/include/dxc/ to include/dxc/
 10. copy dxil.dll: this depends on the windows SDK version, if in doubt, copy the one of the previously active commit (bin/dxil.dll)
 11. set the new commit hash as active in CMakeLists.txt
+

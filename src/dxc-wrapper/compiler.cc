@@ -56,33 +56,49 @@ struct IUnknown;
 
 #include "common/log.hh"
 
-#define DXCW_DEFAULT_SHADER_MODEL "6_4"
+#define DXCW_STR(S) #S
+#define DXCW_XSTR(S) DXCW_STR(S)
+
+#define DXCW_DEFAULT_SHADER_MODEL 6_5
+#define DXCW_DEFAULT_SHADER_MODEL_ENUM CC_MACRO_JOIN(dxcw::shader_model::sm_, DXCW_DEFAULT_SHADER_MODEL)
+#define DXCW_DEFAULT_SHADER_MODEL_STR DXCW_XSTR(DXCW_DEFAULT_SHADER_MODEL)
 
 namespace
 {
-wchar_t const* get_profile_literal(dxcw::target target)
+int get_shader_model_minor_version(dxcw::shader_model sm)
+{
+    if (sm == dxcw::shader_model::sm_use_default)
+    {
+        sm = DXCW_DEFAULT_SHADER_MODEL_ENUM;
+    }
+
+    return (int)sm;
+}
+
+char get_shader_profile_char(dxcw::target target)
 {
     using ct = dxcw::target;
     switch (target)
     {
     case ct::vertex:
-        return L"vs_" DXCW_DEFAULT_SHADER_MODEL;
+        return 'v';
     case ct::hull:
-        return L"hs_" DXCW_DEFAULT_SHADER_MODEL;
+        return 'h';
     case ct::domain:
-        return L"ds_" DXCW_DEFAULT_SHADER_MODEL;
+        return 'd';
     case ct::geometry:
-        return L"gs_" DXCW_DEFAULT_SHADER_MODEL;
+        return 'g';
     case ct::pixel:
-        return L"ps_" DXCW_DEFAULT_SHADER_MODEL;
+        return 'p';
     case ct::compute:
-        return L"cs_" DXCW_DEFAULT_SHADER_MODEL;
+        return 'c';
     case ct::mesh:
-        return L"ms_" DXCW_DEFAULT_SHADER_MODEL;
+        return 'm';
     case ct::amplification:
-        return L"as_" DXCW_DEFAULT_SHADER_MODEL;
+        return 'a';
     default:
-        return L"ERR_UNKNOWN_TARGET";
+        CC_UNREACHABLE("Unknown shader target");
+        return 'X';
     }
 }
 
@@ -195,6 +211,16 @@ struct widechar_memory
 
         return destination_span.data();
     }
+
+    wchar_t const* add_profile_text(dxcw::target target, dxcw::shader_model sm)
+    {
+        char buf[128];
+        // assemble a string like vs_6_6
+        // first char is the "target" (shader stage)
+        // last int is the minor SM version
+        snprintf(buf, sizeof(buf), "%cs_6_%d", get_shader_profile_char(target), get_shader_model_minor_version(sm));
+        return convert_and_add_text(buf);
+    }
 };
 }
 
@@ -234,6 +260,7 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
                                             const char* entrypoint,
                                             dxcw::target target,
                                             dxcw::output output,
+                                            dxcw::shader_model sm,
                                             bool build_debug,
                                             char const* opt_additional_include_paths,
                                             char const* opt_filename_for_errors,
@@ -318,7 +345,7 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
 
     // profile target
     argmem.add_arg(L"-T");
-    argmem.add_arg(get_profile_literal(target));
+    argmem.add_arg(wmem.add_profile_text(target, sm));
 
     // defines
     for (char const* const define : opt_defines)
@@ -433,7 +460,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
 
     // profile target
     argmem.add_arg(L"-T");
-    argmem.add_arg(L"lib_" DXCW_DEFAULT_SHADER_MODEL);
+    argmem.add_arg(L"lib_" DXCW_DEFAULT_SHADER_MODEL_STR);
 
     // include paths
     if (opt_additional_include_paths != nullptr)
@@ -465,13 +492,15 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     auto export_text = cc::alloc_array<wchar_t>::uninitialized(exports.size() * 128, scratch_alloc);
     unsigned num_chars_export_text = 0;
 
-    [[maybe_unused]] auto const f_add_export_wchars = [&](wchar_t const* text, unsigned strlen) {
+    [[maybe_unused]] auto const f_add_export_wchars = [&](wchar_t const* text, unsigned strlen)
+    {
         CC_ASSERT(num_chars_export_text + strlen <= export_text.size() && "text write OOB");
         std::memcpy(export_text.data() + num_chars_export_text, text, strlen * sizeof(wchar_t));
         num_chars_export_text += strlen;
     };
 
-    auto const f_add_export_entry_text = [&](char const* export_name, char const* internal_name) -> wchar_t const* {
+    auto const f_add_export_entry_text = [&](char const* export_name, char const* internal_name) -> wchar_t const*
+    {
         CC_ASSERT(internal_name != nullptr && "internal name is required on library exports");
 
         // from dxc.exe -help:
@@ -619,6 +648,8 @@ bool dxcw::compiler::get_version_commit(unsigned& out_num_commits, const char*& 
     out_commit_hash = nullptr;
     return false;
 }
+
+dxcw::shader_model dxcw::compiler::get_default_shader_model() { return DXCW_DEFAULT_SHADER_MODEL_ENUM; }
 
 
 dxcw::binary::binary(IDxcBlob* blob)

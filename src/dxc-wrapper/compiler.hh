@@ -56,6 +56,19 @@ enum class output : uint8_t
     spirv
 };
 
+enum class shader_model
+{
+    sm_6_0 = 0,
+    sm_6_1,
+    sm_6_2,
+    sm_6_3,
+    sm_6_4,
+    sm_6_5,
+    sm_6_6,
+
+    sm_use_default = 255
+};
+
 struct library_export
 {
     char const* internal_name = nullptr; ///< name of the export inside HLSL, required
@@ -85,6 +98,7 @@ public:
                                         char const* entrypoint,
                                         target target,
                                         output output,
+                                        shader_model sm = shader_model::sm_use_default,
                                         bool build_debug = false,
                                         char const* opt_additional_include_paths = nullptr,
                                         char const* opt_filename_for_errors = nullptr,
@@ -127,6 +141,8 @@ public:
 
     /// prints the loaded DXC version and commit if applicable
     bool print_version() const;
+
+    static shader_model get_default_shader_model();
 
 private:
     IDxcLibrary* _lib = nullptr;

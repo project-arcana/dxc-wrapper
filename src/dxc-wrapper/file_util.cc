@@ -118,8 +118,8 @@ bool dxcw::compile_shader(dxcw::compiler& compiler,
     }
 
 #ifdef CC_OS_WINDOWS
-    auto dxil_binary = compiler.compile_shader(content.data(), entrypoint, parsed_target, dxcw::output::dxil, false, optional_include_dir,
-                                               source_path, {}, scratch_alloc);
+    auto dxil_binary = compiler.compile_shader(content.data(), entrypoint, parsed_target, dxcw::output::dxil, dxcw::shader_model::sm_use_default,
+                                               false, optional_include_dir, source_path, {}, scratch_alloc);
 
     if (dxil_binary.internal_blob == nullptr)
         return false;
@@ -130,8 +130,8 @@ bool dxcw::compile_shader(dxcw::compiler& compiler,
     // On non-windows, DXIL can be compiled but not signed which makes it mostly useless
     // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
 
-    auto spv_binary = compiler.compile_shader(content.data(), entrypoint, parsed_target, dxcw::output::spirv, false, optional_include_dir,
-                                              source_path, {}, scratch_alloc);
+    auto spv_binary = compiler.compile_shader(content.data(), entrypoint, parsed_target, dxcw::output::spirv, dxcw::shader_model::sm_use_default,
+                                              false, optional_include_dir, source_path, {}, scratch_alloc);
     if (spv_binary.internal_blob == nullptr)
         return false;
 
@@ -219,7 +219,8 @@ bool dxcw::compile_library_entry(dxcw::compiler& compiler, const dxcw::shaderlis
 
 bool dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_file, shaderlist_compilation_result* out_results, cc::allocator* scratch_alloc)
 {
-    auto const f_onerror = [&]() -> void {
+    auto const f_onerror = [&]() -> void
+    {
         DXCW_LOG_ERROR("failed to open shaderlist file at {}", shaderlist_file);
         if (out_results)
             *out_results = {-1, -1, 1};
@@ -331,7 +332,8 @@ bool dxcw::compile_shaderlist_json(dxcw::compiler& compiler, const char* json_fi
     int num_libraries = 0;
     int num_errors = 0;
 
-    auto const f_get_string_prop = [](json_t const* node, char const* property_name) -> char const* {
+    auto const f_get_string_prop = [](json_t const* node, char const* property_name) -> char const*
+    {
         if (!node)
             return nullptr;
         auto const prop = json_getProperty(node, property_name);
@@ -467,7 +469,8 @@ bool dxcw::compile_shaderlist_json(dxcw::compiler& compiler, const char* json_fi
                 auto export_array = cc::alloc_array<dxcw::library_export>::uninitialized(num_exports, scratch_alloc);
                 unsigned export_array_cursor = 0;
 
-                auto const f_add_export = [&](char const* internal_name, char const* exported_name) {
+                auto const f_add_export = [&](char const* internal_name, char const* exported_name)
+                {
                     export_array[export_array_cursor] = library_export{internal_name, exported_name};
                     ++export_array_cursor;
                 };
@@ -636,7 +639,8 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
     out_num_libraries = 0;
     int num_errors = 0;
 
-    auto const f_get_string_prop = [](json_t const* node, char const* property_name) -> char const* {
+    auto const f_get_string_prop = [](json_t const* node, char const* property_name) -> char const*
+    {
         if (!node)
             return nullptr;
         auto const prop = json_getProperty(node, property_name);
@@ -803,7 +807,8 @@ bool dxcw::parse_shaderlist_json(const char* shaderlist_file,
 
                     // extract entries
 
-                    auto const f_add_export = [&](char const* internal_name, char const* exported_name) {
+                    auto const f_add_export = [&](char const* internal_name, char const* exported_name)
+                    {
                         CC_ASSERT(internal_name && "fatal error");
 
                         char* const written_str_internal = write_entry.entrypoint_buffer + exports_strbuf_cursor;
@@ -891,7 +896,8 @@ cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_pat
     std::string token1;
     std::string token2;
 
-    auto const f_add_file = [&](char const* path, unsigned num_prev_includes) -> unsigned {
+    auto const f_add_file = [&](char const* path, unsigned num_prev_includes) -> unsigned
+    {
         std::ifstream in_file(path, std::ios_base::in | std::ios_base::binary);
         if (!in_file.good())
             return 0;
