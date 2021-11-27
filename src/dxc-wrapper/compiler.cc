@@ -429,7 +429,7 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     wmem.initialize(1024 + 1024 + 1024 + num_chars_defines, scratch_alloc);
 
     argument_memory argmem;
-    argmem.initialize(30, scratch_alloc);
+    argmem.initialize(30 + exports.size() * 2, scratch_alloc);
 
     if (opt_filename_for_errors)
     {
