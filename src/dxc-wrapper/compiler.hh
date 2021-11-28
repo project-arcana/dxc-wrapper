@@ -100,9 +100,9 @@ public:
                                         output output,
                                         shader_model sm = shader_model::sm_use_default,
                                         bool build_debug = false,
-                                        char const* opt_additional_include_paths = nullptr,
+                                        cc::span<char const* const> opt_additional_include_paths = {},
                                         char const* opt_filename_for_errors = nullptr,
-                                        cc::span<char const*> opt_defines = {},
+                                        cc::span<char const* const> opt_defines = {},
                                         cc::allocator* scratch_alloc = cc::system_allocator);
 
     ///
@@ -121,9 +121,9 @@ public:
                                          cc::span<library_export const> exports,
                                          output output,
                                          bool build_debug = false,
-                                         char const* opt_additional_include_paths = nullptr,
+                                         cc::span<char const* const> opt_additional_include_paths = {},
                                          char const* opt_filename_for_errors = nullptr,
-                                         cc::span<char const*> opt_defines = {},
+                                         cc::span<char const* const> opt_defines = {},
                                          cc::allocator* scratch_alloc = cc::system_allocator);
 
 

@@ -203,10 +203,10 @@ struct widechar_memory
         return res;
     }
 
-    wchar_t const* convert_and_add_text(char const* text)
+    wchar_t const* convert_and_add_text(char const* text, int opt_num_src_chars = -1)
     {
         auto const destination_span = cc::span(buffer).subspan(num_chars, buffer.size() - num_chars);
-        auto const num_wchars_written = cc::char_to_widechar(destination_span, text);
+        auto const num_wchars_written = cc::char_to_widechar(destination_span, text, opt_num_src_chars);
         num_chars += num_wchars_written + 1;
 
         return destination_span.data();
@@ -262,9 +262,9 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
                                             dxcw::output output,
                                             dxcw::shader_model sm,
                                             bool build_debug,
-                                            char const* opt_additional_include_paths,
+                                            cc::span<char const* const> opt_additional_include_paths,
                                             char const* opt_filename_for_errors,
-                                            cc::span<char const*> opt_defines,
+                                            cc::span<char const* const> opt_defines,
                                             cc::allocator* scratch_alloc)
 {
 #ifdef DXCW_HAS_OPTICK
@@ -326,10 +326,10 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
     argmem.add_arg(wmem.convert_and_add_text(entrypoint));
 
     // include paths
-    if (opt_additional_include_paths != nullptr)
+    for (char const* additional_include_path : opt_additional_include_paths)
     {
         argmem.add_arg(L"-I");
-        argmem.add_arg(wmem.convert_and_add_text(opt_additional_include_paths));
+        argmem.add_arg(wmem.convert_and_add_text(additional_include_path));
     }
 
     if (build_debug)
@@ -402,9 +402,9 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                              cc::span<const library_export> exports,
                                              dxcw::output output,
                                              bool build_debug,
-                                             const char* opt_additional_include_paths,
+                                             cc::span<char const* const> opt_additional_include_paths,
                                              const char* opt_filename_for_errors,
-                                             cc::span<char const*> opt_defines,
+                                             cc::span<char const* const> opt_defines,
                                              cc::allocator* scratch_alloc)
 {
 #ifdef DXCW_HAS_OPTICK
@@ -463,10 +463,10 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
     argmem.add_arg(L"lib_" DXCW_DEFAULT_SHADER_MODEL_STR);
 
     // include paths
-    if (opt_additional_include_paths != nullptr)
+    for (char const* additional_include_path : opt_additional_include_paths)
     {
         argmem.add_arg(L"-I");
-        argmem.add_arg(wmem.convert_and_add_text(opt_additional_include_paths));
+        argmem.add_arg(wmem.convert_and_add_text(additional_include_path));
     }
 
 

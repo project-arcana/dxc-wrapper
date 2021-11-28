@@ -107,6 +107,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
 
     std::error_code ec;
     auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_path).remove_filename(), ec).string();
+    char const* additional_includes[] = {base_path_fs.c_str()};
 
     if (ec)
     {
@@ -114,8 +115,9 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
         return 1;
     }
 
-    auto const f_refresh_includes = [&](auxilliary_watch_entry& aux_entry, char const* shader_path) -> void {
-        aux_entry.included_files = dxcw::parse_includes(shader_path, base_path_fs.c_str());
+    auto const f_refresh_includes = [&](auxilliary_watch_entry& aux_entry, char const* shader_path) -> void
+    {
+        aux_entry.included_files = dxcw::parse_includes(shader_path, additional_includes);
 
         for (auto j = 0u; j < aux_entry.included_files.size(); ++j)
         {
@@ -127,7 +129,8 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
         }
     };
 
-    auto const f_refresh_all_entries = [&]() -> bool {
+    auto const f_refresh_all_entries = [&]() -> bool
+    {
         num_shaders = dxcw::parse_shaderlist(shaderlist_path, nullptr, 0);
         if (num_shaders == unsigned(-1))
             return false;
@@ -143,7 +146,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
             // refresh include flags
             f_refresh_includes(watch_aux[i], watch_entries[i].pathin_absolute);
             // compile
-            dxcw::compile_binary_entry(compiler, watch_entries[i], base_path_fs.c_str(), scratch_alloc);
+            dxcw::compile_binary_entry(compiler, watch_entries[i], additional_includes, scratch_alloc);
         }
 
         return true;
@@ -193,7 +196,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
             {
                 // main file changed, refresh includes and recompile
                 f_refresh_includes(watch_aux[i], watch_entries[i].pathin_absolute);
-                dxcw::compile_binary_entry(compiler, watch_entries[i], base_path_fs.c_str(), scratch_alloc);
+                dxcw::compile_binary_entry(compiler, watch_entries[i], additional_includes, scratch_alloc);
                 entry.main_flag->clear();
             }
             else
@@ -204,7 +207,7 @@ int dxcw::compile_shaderlist_watch(const char* shaderlist_path, cc::allocator* s
                     {
                         // single include changed, refresh includes and recompile
                         f_refresh_includes(entry, watch_entries[i].pathin_absolute);
-                        dxcw::compile_binary_entry(compiler, watch_entries[i], base_path_fs.c_str(), scratch_alloc);
+                        dxcw::compile_binary_entry(compiler, watch_entries[i], additional_includes, scratch_alloc);
                         break;
                     }
                 }
@@ -227,6 +230,7 @@ int dxcw::compile_shaderlist_json_single(const char* shaderlist_json, cc::alloca
         return 1;
     }
     auto const base_path_string = base_path_fs.string();
+    char const* additional_includes[] = {base_path_string.c_str()};
 
     dxcw::compiler compiler;
     compiler.initialize();
@@ -259,13 +263,13 @@ int dxcw::compile_shaderlist_json_single(const char* shaderlist_json, cc::alloca
     unsigned num_errors = 0;
     for (auto i = 0u; i < num_shaders; ++i)
     {
-        bool ok = dxcw::compile_binary_entry(compiler, watch_binary_entries[i], base_path_string.c_str(), scratch_alloc);
+        bool ok = dxcw::compile_binary_entry(compiler, watch_binary_entries[i], additional_includes, scratch_alloc);
         if (!ok)
             ++num_errors;
     }
     for (auto i = 0u; i < num_libraries; ++i)
     {
-        bool ok = dxcw::compile_library_entry(compiler, watch_library_entries[i], base_path_string.c_str(), scratch_alloc);
+        bool ok = dxcw::compile_library_entry(compiler, watch_library_entries[i], additional_includes, scratch_alloc);
         if (!ok)
             ++num_errors;
     }
@@ -312,6 +316,7 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
 
     std::error_code ec;
     auto const base_path_fs = std::filesystem::canonical(std::filesystem::path(shaderlist_json_path).remove_filename(), ec).string();
+    char const* additional_includes[] = {base_path_fs.c_str()};
 
     if (ec)
     {
@@ -319,8 +324,9 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
         return 1;
     }
 
-    auto f_refresh_includes = [&](auxilliary_watch_entry& aux_entry, char const* shader_path) -> void {
-        aux_entry.included_files = dxcw::parse_includes(shader_path, base_path_fs.c_str());
+    auto f_refresh_includes = [&](auxilliary_watch_entry& aux_entry, char const* shader_path) -> void
+    {
+        aux_entry.included_files = dxcw::parse_includes(shader_path, additional_includes);
 
         for (auto j = 0u; j < aux_entry.included_files.size(); ++j)
         {
@@ -333,7 +339,8 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
         }
     };
 
-    auto f_refresh_all_entries = [&]() -> bool {
+    auto f_refresh_all_entries = [&]() -> bool
+    {
         // parse the shaderlist
         bool not_enough_space = false;
         do
@@ -377,7 +384,7 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
 
                 DXCW_LOG("  [B {}/{}] building {} ({}; {})", i + 1, num_shaders, entry.pathin, entry.target, entry.entrypoint);
                 auto const success = dxcw::compile_shader(compiler, entry.pathin_absolute, entry.target, entry.entrypoint, entry.pathout_absolute,
-                                                          base_path_fs.c_str(), scratch_alloc);
+                                                          additional_includes, scratch_alloc);
 
                 watch_binary_aux[i].was_last_compilation_successful = success;
 
@@ -405,7 +412,8 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
                 }
 
                 DXCW_LOG("  [L {}/{}] building library {} ({} exports)", i + 1, num_libraries, entry.pathin, entry.num_exports);
-                auto const success = dxcw::compile_library(compiler, entry.pathin_absolute, exports, entry.pathout_absolute, base_path_fs.c_str(), scratch_alloc);
+
+                auto const success = dxcw::compile_library(compiler, entry.pathin_absolute, exports, entry.pathout_absolute, additional_includes, scratch_alloc);
 
                 watch_library_aux[i].was_last_compilation_successful = success;
 
@@ -419,7 +427,8 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
         return true;
     };
 
-    auto f_output_pending_error_message = [&] {
+    auto f_output_pending_error_message = [&]
+    {
         if (num_binary_errors + num_library_errors > 0)
         {
             DXCW_LOG_WARN("files with errors remaining ({} binaries, {} libraries)", num_binary_errors, num_library_errors);
@@ -434,16 +443,19 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
             }
         }
     };
-    auto f_refresh_binary = [&](unsigned index) -> bool {
+    auto f_refresh_binary = [&](unsigned index) -> bool
+    {
         // refresh includes
         f_refresh_includes(watch_binary_aux[index], watch_binary_entries[index].pathin_absolute);
 
         // compile
         auto const& entry = watch_binary_entries[index];
 
+        char const* additional_includes[] = {base_path_fs.c_str()};
+
         DXCW_LOG("rebuilding {} ({}; {})", entry.pathin, entry.target, entry.entrypoint);
         auto const success = dxcw::compile_shader(compiler, entry.pathin_absolute, entry.target, entry.entrypoint, entry.pathout_absolute,
-                                                  base_path_fs.c_str(), scratch_alloc);
+                                                  additional_includes, scratch_alloc);
 
         bool const prev_success = watch_binary_aux[index].was_last_compilation_successful;
 
@@ -461,7 +473,8 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
         return success;
     };
 
-    auto f_refresh_library = [&](unsigned index) -> bool {
+    auto f_refresh_library = [&](unsigned index) -> bool
+    {
         auto const& entry = watch_library_entries[index];
         auto& entry_aux = watch_library_aux[index];
 
@@ -476,7 +489,9 @@ int dxcw::compile_shaderlist_json_watch(const char* shaderlist_json_path, cc::al
         }
 
         DXCW_LOG("rebuilding {} ({} exports)", entry.pathin, entry.num_exports);
-        bool const success = dxcw::compile_library(compiler, entry.pathin_absolute, exports, entry.pathout_absolute, base_path_fs.c_str(), scratch_alloc);
+
+        char const* additional_includes[] = {base_path_fs.c_str()};
+        bool const success = dxcw::compile_library(compiler, entry.pathin_absolute, exports, entry.pathout_absolute, additional_includes, scratch_alloc);
 
         bool const prev_success = entry_aux.was_last_compilation_successful;
 

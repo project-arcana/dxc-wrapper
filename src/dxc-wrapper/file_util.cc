@@ -100,7 +100,7 @@ bool dxcw::compile_shader(dxcw::compiler& compiler,
                           const char* shader_target,
                           const char* entrypoint,
                           const char* output_path,
-                          const char* optional_include_dir,
+                          cc::span<char const* const> opt_additional_include_paths,
                           cc::allocator* scratch_alloc)
 {
     auto const content = read_file(source_path, scratch_alloc);
@@ -119,7 +119,7 @@ bool dxcw::compile_shader(dxcw::compiler& compiler,
 
 #ifdef CC_OS_WINDOWS
     auto dxil_binary = compiler.compile_shader(content.data(), entrypoint, parsed_target, dxcw::output::dxil, dxcw::shader_model::sm_use_default,
-                                               false, optional_include_dir, source_path, {}, scratch_alloc);
+                                               false, opt_additional_include_paths, source_path, {}, scratch_alloc);
 
     if (dxil_binary.internal_blob == nullptr)
         return false;
@@ -131,7 +131,7 @@ bool dxcw::compile_shader(dxcw::compiler& compiler,
     // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
 
     auto spv_binary = compiler.compile_shader(content.data(), entrypoint, parsed_target, dxcw::output::spirv, dxcw::shader_model::sm_use_default,
-                                              false, optional_include_dir, source_path, {}, scratch_alloc);
+                                              false, opt_additional_include_paths, source_path, {}, scratch_alloc);
     if (spv_binary.internal_blob == nullptr)
         return false;
 
@@ -144,7 +144,7 @@ bool dxcw::compile_library(dxcw::compiler& compiler,
                            const char* source_path,
                            cc::span<const library_export> exports,
                            const char* output_path,
-                           const char* optional_include_dir,
+                           cc::span<char const* const> opt_additional_include_paths,
                            cc::allocator* scratch_alloc)
 {
     if (exports.empty())
@@ -162,7 +162,7 @@ bool dxcw::compile_library(dxcw::compiler& compiler,
     }
 
 #ifdef CC_OS_WINDOWS
-    auto dxil_binary = compiler.compile_library(content.data(), exports, dxcw::output::dxil, false, optional_include_dir, source_path, {}, scratch_alloc);
+    auto dxil_binary = compiler.compile_library(content.data(), exports, dxcw::output::dxil, false, opt_additional_include_paths, source_path, {}, scratch_alloc);
 
     if (dxil_binary.internal_blob == nullptr)
         return false;
@@ -173,7 +173,7 @@ bool dxcw::compile_library(dxcw::compiler& compiler,
     // On non-windows, DXIL can be compiled but not signed which makes it mostly useless
     // requiring DXIL on linux would be a pretty strange path but can be supported with more tricks
 
-    auto spv_binary = compiler.compile_library(content.data(), exports, dxcw::output::spirv, false, optional_include_dir, source_path, {}, scratch_alloc);
+    auto spv_binary = compiler.compile_library(content.data(), exports, dxcw::output::spirv, false, opt_additional_include_paths, source_path, {}, scratch_alloc);
     if (spv_binary.internal_blob == nullptr)
         return false;
 
@@ -183,10 +183,13 @@ bool dxcw::compile_library(dxcw::compiler& compiler,
 }
 
 
-bool dxcw::compile_binary_entry(dxcw::compiler& compiler, const dxcw::shaderlist_binary_entry_owning& entry, const char* opt_include_dir, cc::allocator* scratch_alloc)
+bool dxcw::compile_binary_entry(dxcw::compiler& compiler,
+                                const dxcw::shaderlist_binary_entry_owning& entry,
+                                cc::span<char const* const> opt_additional_include_paths,
+                                cc::allocator* scratch_alloc)
 {
-    auto const success
-        = dxcw::compile_shader(compiler, entry.pathin_absolute, entry.target, entry.entrypoint, entry.pathout_absolute, opt_include_dir, scratch_alloc);
+    auto const success = dxcw::compile_shader(compiler, entry.pathin_absolute, entry.target, entry.entrypoint, entry.pathout_absolute,
+                                              opt_additional_include_paths, scratch_alloc);
 
     if (success)
         DXCW_LOG("compiled {} ({}; {})", entry.pathin, entry.target, entry.entrypoint);
@@ -196,7 +199,10 @@ bool dxcw::compile_binary_entry(dxcw::compiler& compiler, const dxcw::shaderlist
     return success;
 }
 
-bool dxcw::compile_library_entry(dxcw::compiler& compiler, const dxcw::shaderlist_library_entry_owning& entry, const char* opt_include_dir, cc::allocator* scratch_alloc)
+bool dxcw::compile_library_entry(dxcw::compiler& compiler,
+                                 const dxcw::shaderlist_library_entry_owning& entry,
+                                 cc::span<char const* const> opt_additional_include_paths,
+                                 cc::allocator* scratch_alloc)
 {
     auto exports = cc::alloc_array<library_export>::uninitialized(entry.num_exports, scratch_alloc);
 
@@ -206,7 +212,7 @@ bool dxcw::compile_library_entry(dxcw::compiler& compiler, const dxcw::shaderlis
         exports[i].export_name = entry.exports_exported_names[i];
     }
 
-    auto const success = dxcw::compile_library(compiler, entry.pathin_absolute, exports, entry.pathout_absolute, opt_include_dir, scratch_alloc);
+    auto const success = dxcw::compile_library(compiler, entry.pathin_absolute, exports, entry.pathout_absolute, opt_additional_include_paths, scratch_alloc);
 
     if (success)
         DXCW_LOG("compiled library {} ({} exports)", entry.pathin, entry.num_exports);
@@ -277,8 +283,11 @@ bool dxcw::compile_shaderlist(dxcw::compiler& compiler, const char* shaderlist_f
             }
 
             ++num_shaders;
-            auto const success = compile_shader(compiler, pathin_absolute.string().c_str(), target.c_str(), entrypoint.c_str(),
-                                                (base_path_fs / pathout).string().c_str(), base_path_string.c_str(), scratch_alloc);
+
+            char const* additonalIncludes[] = {base_path_string.c_str()};
+
+            bool const success = compile_shader(compiler, pathin_absolute.string().c_str(), target.c_str(), entrypoint.c_str(),
+                                                (base_path_fs / pathout).string().c_str(), additonalIncludes, scratch_alloc);
 
             if (!success)
                 ++num_errors;
@@ -408,8 +417,11 @@ bool dxcw::compile_shaderlist_json(dxcw::compiler& compiler, const char* json_fi
 
                     // all good, compile the shader binary
                     ++num_shaders;
-                    auto const success = compile_shader(compiler, pathin_absolute.string().c_str(), str_target, str_entrypoint,
-                                                        (base_path_fs / str_output).string().c_str(), base_path_string.c_str(), scratch_alloc);
+
+                    char const* additonalIncludes[] = {base_path_string.c_str()};
+
+                    bool const success = compile_shader(compiler, pathin_absolute.string().c_str(), str_target, str_entrypoint,
+                                                        (base_path_fs / str_output).string().c_str(), additonalIncludes, scratch_alloc);
 
                     if (!success)
                         ++num_errors;
@@ -504,8 +516,11 @@ bool dxcw::compile_shaderlist_json(dxcw::compiler& compiler, const char* json_fi
 
                 // all good, compile the library
                 ++num_libraries;
-                auto const success = compile_library(compiler, pathin_absolute.string().c_str(), export_array,
-                                                     (base_path_fs / str_output).string().c_str(), base_path_string.c_str(), scratch_alloc);
+
+                char const* additonalIncludes[] = {base_path_string.c_str()};
+
+                bool const success = compile_library(compiler, pathin_absolute.string().c_str(), export_array,
+                                                     (base_path_fs / str_output).string().c_str(), additonalIncludes, scratch_alloc);
 
                 if (!success)
                     ++num_errors;
@@ -877,14 +892,18 @@ l_parse_error:
 }
 
 
-cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_path, const char* include_path, cc::allocator* alloc)
+cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_path, cc::span<char const* const> include_paths, cc::allocator* alloc)
 {
-    CC_CONTRACT(include_path);
     std::error_code ec;
-    auto const include_path_fs = std::filesystem::canonical(include_path, ec);
-    if (ec)
+    cc::capped_vector<std::filesystem::path, 16> include_paths_fs;
+    for (char const* include : include_paths)
     {
-        return {};
+        include_paths_fs.emplace_back(std::filesystem::canonical(include, ec));
+
+        if (ec)
+        {
+            return {};
+        }
     }
 
     unsigned num_includes = 0;
@@ -917,11 +936,28 @@ cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_pat
                 std::string absolute_include;
                 {
                     std::string const include_without_quotes = token2.substr(1, token2.length() - 2);
-                    // look the include up by completing it from root ("include_path")
-                    ec.clear();
-                    auto const include_path_from_root_fs = std::filesystem::canonical(include_path_fs / include_without_quotes, ec);
 
-                    if (ec)
+                    // look the include up by completing it from one of the include paths (root)
+                    bool foundFileFromIncludePaths = false;
+                    std::filesystem::path include_path_from_root_fs;
+                    for (std::filesystem::path const& include_fs : include_paths_fs)
+                    {
+                        ec.clear();
+                        include_path_from_root_fs = std::filesystem::canonical(include_fs / include_without_quotes, ec);
+
+                        if (!ec)
+                        {
+                            // it worked
+                            foundFileFromIncludePaths = true;
+                            break;
+                        }
+                    }
+
+                    if (foundFileFromIncludePaths)
+                    {
+                        absolute_include = include_path_from_root_fs.string();
+                    }
+                    else
                     {
                         // look it up by completing it from the current folder instead
                         ec.clear();
@@ -938,10 +974,6 @@ cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_pat
                         {
                             absolute_include = include_path_from_local_fs.string();
                         }
-                    }
-                    else
-                    {
-                        absolute_include = include_path_from_root_fs.string();
                     }
                 }
 

@@ -33,19 +33,25 @@ DXCW_API bool compile_shader(dxcw::compiler& compiler,
                              char const* shader_target,
                              char const* entrypoint,
                              char const* output_path,
-                             char const* optional_include_dir = nullptr,
+                             cc::span<char const* const> opt_additional_include_paths = {},
                              cc::allocator* scratch_alloc = cc::system_allocator);
 
 DXCW_API bool compile_library(dxcw::compiler& compiler,
                               char const* source_path,
                               cc::span<library_export const> exports,
                               char const* output_path,
-                              char const* optional_include_dir = nullptr,
+                              cc::span<char const* const> opt_additional_include_paths = {},
                               cc::allocator* scratch_alloc = cc::system_allocator);
 
-DXCW_API bool compile_binary_entry(compiler& compiler, dxcw::shaderlist_binary_entry_owning const& entry, char const* opt_include_dir, cc::allocator* scratch_alloc);
+DXCW_API bool compile_binary_entry(compiler& compiler,
+                                   dxcw::shaderlist_binary_entry_owning const& entry,
+                                   cc::span<char const* const> opt_additional_include_paths,
+                                   cc::allocator* scratch_alloc);
 
-DXCW_API bool compile_library_entry(compiler& compiler, dxcw::shaderlist_library_entry_owning const& entry, char const* opt_include_dir, cc::allocator* scratch_alloc);
+DXCW_API bool compile_library_entry(compiler& compiler,
+                                    dxcw::shaderlist_library_entry_owning const& entry,
+                                    cc::span<char const* const> opt_additional_include_paths,
+                                    cc::allocator* scratch_alloc);
 
 /// compile and write to disk all shaders as specified in a shaderlist.txt file
 ///
@@ -98,7 +104,7 @@ DXCW_API bool parse_shaderlist_json(char const* shaderlist_file,
 
 
 /// recursively parses all #include directories, resolves them to absolute paths, and returns a unique list
-DXCW_API cc::alloc_vector<fixed_string> parse_includes(char const* source_path, char const* include_path, cc::allocator* allocator = cc::system_allocator);
+DXCW_API cc::alloc_vector<fixed_string> parse_includes(char const* source_path, cc::span<char const* const> include_paths, cc::allocator* allocator = cc::system_allocator);
 
 
 struct shaderlist_binary_entry_owning
