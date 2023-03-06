@@ -19,6 +19,9 @@ struct IUnknown;
 #pragma warning(push, 0)
 
 #include <Windows.h>
+
+#include <d3d12shader.h> // FOR D3D12_SHADER_DESC
+
 #include <clean-core/native/detail/win32_sanitize_after.inl> // this is still reasonable, (undef min, max, etc.)
 // clang-format on
 
@@ -233,6 +236,7 @@ void dxcw::compiler::initialize()
     CC_ASSERT(_lib == nullptr && "double initialize");
     verify_hres(DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&_lib)));
     verify_hres(DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&_compiler)));
+    verify_hres(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&_utils)));
     verify_hres(_lib->CreateIncludeHandler(&_include_handler));
     // verify_hres(DxcCreateInstance(CLSID_DxcContainerReflection, IID_PPV_ARGS(&_reflection)));
 }
@@ -246,12 +250,17 @@ void dxcw::compiler::destroy()
     if (_lib == nullptr)
         return;
 
-    //_reflection->Release();
-    //_reflection = nullptr;
+    if (_reflection)
+    {
+        _reflection->Release();
+        _reflection = nullptr;
+    }
     _include_handler->Release();
     _include_handler = nullptr;
     _compiler->Release();
     _compiler = nullptr;
+    _utils->Release();
+    _utils = nullptr;
     _lib->Release();
     _lib = nullptr;
 }
@@ -270,21 +279,69 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
 #ifdef DXCW_HAS_OPTICK
     OPTICK_EVENT();
 #endif
+    CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
-    CC_CONTRACT(raw_text);
-    CC_CONTRACT(entrypoint);
+    shader_description shader = {};
+    shader.raw_text = raw_text;
+    shader.entrypoint = entrypoint;
+    shader.target = target;
+    shader.sm = sm;
+
+    compilation_config config = {};
+    config.output_format = output;
+    config.build_debug = build_debug;
+    config.additional_include_paths = opt_additional_include_paths;
+    config.defines = opt_defines;
+    config.filename_for_errors = opt_filename_for_errors;
+
+    IDxcResult* result = this->compile_shader_result(shader, config, scratch_alloc);
+    DEFER_RELEASE(result);
+
+    // Print errors and warning if present
+    IDxcBlobUtf8* pErrors = nullptr;
+    char* pErrorString = nullptr;
+    DEFER_RELEASE(pErrors);
+    if (get_result_error_string(result, &pErrors, &pErrorString))
+    {
+        DXCW_LOG_ERROR(R"(shader "{}", entrypoint "{}" ({}):)", opt_filename_for_errors, entrypoint, get_output_type_literal(output));
+        DXCW_LOG_ERROR("{}", pErrorString);
+
+        //        DXCW_LOG_ERROR("include root: {}", opt_additional_include_paths);
+        //        DXCW_LOG_ERROR("working dir: {}", std::filesystem::current_path().string().c_str());
+        //        DXCW_LOG_ERROR("compiling primary source of {} chars", raw_text_length);
+    }
+
+    // Return binary blob
+    binary res = {};
+    if (!get_result_binary(result, &res))
+    {
+        DXCW_LOG_ERROR("compilation failed");
+        return binary{nullptr};
+    }
+    return res;
+}
+
+IDxcResult* dxcw::compiler::compile_shader_result(shader_description const& shader, compilation_config const& config, cc::allocator* scratch_alloc)
+{
+#ifdef DXCW_HAS_OPTICK
+    OPTICK_EVENT();
+#endif
+
+    CC_CONTRACT(shader.raw_text);
+    CC_CONTRACT(shader.entrypoint);
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
     IDxcBlobEncoding* encoding = nullptr;
     DEFER_RELEASE(encoding);
 
-    auto const raw_text_length = uint32_t(std::strlen(raw_text));
+    // nocheckin what's the use here?
+    auto const raw_text_length = uint32_t(std::strlen(shader.raw_text));
     CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
-    _lib->CreateBlobWithEncodingFromPinned(raw_text, raw_text_length, CP_UTF8, &encoding);
+    _lib->CreateBlobWithEncodingFromPinned(shader.raw_text, raw_text_length, CP_UTF8, &encoding);
 
     widechar_memory wmem;
     size_t num_chars_defines = 0;
-    for (char const* const define : opt_defines)
+    for (char const* const define : config.defines)
     {
         num_chars_defines += std::strlen(define) + 1;
     }
@@ -293,13 +350,13 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
     argument_memory argmem;
     argmem.initialize(30, scratch_alloc);
 
-    if (opt_filename_for_errors)
+    if (config.filename_for_errors)
     {
         // the filename for errors is simply any non-flag argument to the compilation
-        argmem.add_arg(wmem.convert_and_add_text(opt_filename_for_errors));
+        argmem.add_arg(wmem.convert_and_add_text(config.filename_for_errors));
     }
 
-    if (output == output::spirv)
+    if (config.output_format == output::spirv)
     {
         // SPIR-V specific flags
 
@@ -309,13 +366,13 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
             L"-spirv", L"-fspv-target-env=vulkan1.1", L"-fvk-use-dx-layout", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all", L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
         argmem.add_multiple_args(spirv_args, CC_COUNTOF(spirv_args));
 
-        if (target == target::vertex || target == target::geometry || target == target::domain)
+        if (shader.target == target::vertex || shader.target == target::geometry || shader.target == target::domain)
         {
             // -fvk-invert-y (only in vs/gs/ds): line up vulkans flipped viewport to behave just like HLSL->D3D12
             argmem.add_arg(L"-fvk-invert-y");
         }
     }
-    else if (output == output::dxil)
+    else if (config.output_format == output::dxil)
     {
         // suppress warnings about [[vk::push_constant]] when compiling to dxil
         argmem.add_arg(L"-Wno-ignored-attributes");
@@ -323,16 +380,16 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
 
     // entrypoint
     argmem.add_arg(L"-E");
-    argmem.add_arg(wmem.convert_and_add_text(entrypoint));
+    argmem.add_arg(wmem.convert_and_add_text(shader.entrypoint));
 
     // include paths
-    for (char const* additional_include_path : opt_additional_include_paths)
+    for (char const* additional_include_path : config.additional_include_paths)
     {
         argmem.add_arg(L"-I");
         argmem.add_arg(wmem.convert_and_add_text(additional_include_path));
     }
 
-    if (build_debug)
+    if (config.build_debug)
     {
         argmem.add_arg(L"-Od");           // disable optimization
         argmem.add_arg(L"-Zi");           // -Zi: build debug information
@@ -345,57 +402,116 @@ dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
 
     // profile target
     argmem.add_arg(L"-T");
-    argmem.add_arg(wmem.add_profile_text(target, sm));
+    argmem.add_arg(wmem.add_profile_text(shader.target, shader.sm));
 
     // defines
-    for (char const* const define : opt_defines)
+    for (char const* const define : config.defines)
     {
         argmem.add_arg(L"-D");
         argmem.add_arg(wmem.convert_and_add_text(define));
     }
 
     DxcBuffer source_buffer;
-    source_buffer.Ptr = raw_text;
-    source_buffer.Size = std::strlen(raw_text);
+    source_buffer.Ptr = shader.raw_text;
+    source_buffer.Size = raw_text_length;
     source_buffer.Encoding = CP_UTF8;
 
     IDxcResult* result = nullptr;
-    DEFER_RELEASE(result);
     _compiler->Compile(&source_buffer, argmem.get_data(), argmem.get_num(), _include_handler, IID_PPV_ARGS(&result));
 
+    return result;
+}
 
-    // Print errors and warning if present
-    IDxcBlobUtf8* pErrors = nullptr;
-    IDxcBlobUtf16* pOutputName = nullptr;
-    DEFER_RELEASE(pErrors);
-    DEFER_RELEASE(pOutputName);
-    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), &pOutputName);
-
-    // Note that d3dcompiler would return null if no errors or warnings are present.
-    // IDxcCompiler3::Compile will always return an error buffer, but its length will be zero if there are no warnings or errors.
-    if (pErrors != nullptr && pErrors->GetStringLength() != 0)
-    {
-        DXCW_LOG_ERROR(R"(shader "{}", entrypoint "{}" ({}):)", opt_filename_for_errors, entrypoint, get_output_type_literal(output));
-        DXCW_LOG_ERROR("{}", static_cast<char const*>(pErrors->GetBufferPointer()));
-
-        //        DXCW_LOG_ERROR("include root: {}", opt_additional_include_paths);
-        //        DXCW_LOG_ERROR("working dir: {}", std::filesystem::current_path().string().c_str());
-        //        DXCW_LOG_ERROR("compiling primary source of {} chars", raw_text_length);
-    }
-
-    // Quit on failure
+bool dxcw::compiler::is_result_successful(IDxcResult* result)
+{
     HRESULT hrStatus;
-    result->GetStatus(&hrStatus);
-    if (FAILED(hrStatus))
-    {
-        DXCW_LOG_ERROR("compilation failed");
-        return binary{nullptr};
-    }
+    return result && SUCCEEDED(result->GetStatus(&hrStatus)) && SUCCEEDED(hrStatus);
+}
+
+bool dxcw::compiler::get_result_binary(IDxcResult* result, binary* out_binary)
+{
+    if (!is_result_successful(result))
+        return false;
 
     // Return binary blob
     IDxcBlob* pShader = nullptr;
-    result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), nullptr);
-    return binary{pShader};
+    IDxcBlobUtf16* pOutObjectName = nullptr;
+    DEFER_RELEASE(pOutObjectName);
+    if (FAILED(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), &pOutObjectName)))
+        return false;
+
+    *out_binary = binary{pShader};
+    return true;
+}
+
+bool dxcw::compiler::get_result_error_string(IDxcResult* result, IDxcBlobUtf8** out_blob_to_free, char** out_error_string)
+{
+    CC_CONTRACT(out_blob_to_free && out_error_string);
+    if (!result)
+        return false;
+
+    IDxcBlobUtf16* pOutErrorName = nullptr;
+    DEFER_RELEASE(pOutErrorName);
+    if (FAILED(result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(out_blob_to_free), &pOutErrorName)) || *out_blob_to_free == nullptr)
+        return false;
+
+    // Note that d3dcompiler would return null if no errors or warnings are present.
+    // IDxcCompiler3::Compile will always return an error buffer, but its length will be zero if there are no warnings or errors.
+    if ((*out_blob_to_free)->GetStringLength() == 0)
+    {
+        (*out_blob_to_free)->Release();
+        *out_blob_to_free = nullptr;
+        return false;
+    }
+
+    *out_error_string = static_cast<char*>((*out_blob_to_free)->GetBufferPointer());
+    return true;
+}
+
+void dxcw::compiler::free_result_error_blob(IDxcBlobUtf8* blob_to_free)
+{
+    if (blob_to_free)
+        blob_to_free->Release();
+}
+
+bool dxcw::compiler::get_result_reflection(IDxcResult* result, D3D12_SHADER_DESC* out_shader_desc)
+{
+#ifdef CC_OS_WINDOWS
+    if (!result)
+        return false;
+
+    CC_CONTRACT(out_shader_desc);
+    CC_ASSERT(_utils != nullptr && "Called on unitialized compiler");
+
+    IDxcBlob* pReflection = nullptr;
+    IDxcBlobUtf16* pOutReflectionName = nullptr;
+    DEFER_RELEASE(pReflection);
+    DEFER_RELEASE(pOutReflectionName);
+    if (FAILED(result->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&pReflection), &pOutReflectionName)))
+        return false;
+
+    DxcBuffer ReflBuffer = {};
+    ReflBuffer.Ptr = pReflection->GetBufferPointer();
+    ReflBuffer.Size = pReflection->GetBufferSize();
+
+    ID3D12ShaderReflection* pShaderReflection = nullptr;
+    DEFER_RELEASE(pShaderReflection);
+    if (FAILED(_utils->CreateReflection(&ReflBuffer, IID_PPV_ARGS(&pShaderReflection))))
+        return false;
+
+    D3D12_SHADER_DESC ShaderDesc = {};
+    return SUCCEEDED(pShaderReflection->GetDesc(&ShaderDesc));
+
+    // DXCW_LOG_TRACE("Shader stats: %u instructions (%u Float, %u Int, %u uint)", ShaderDesc.InstructionCount, ShaderDesc.FloatInstructionCount,
+    //                ShaderDesc.IntInstructionCount, ShaderDesc.UintInstructionCount);
+    // DXCW_LOG_TRACE("              %u static branches, %u dynamic branches", ShaderDesc.StaticFlowControlCount, ShaderDesc.DynamicFlowControlCount);
+    // DXCW_LOG_TRACE("              %u temp registers, %u temp arrays", ShaderDesc.TempRegisterCount, ShaderDesc.TempArrayCount);
+
+#else
+    // D3D12 is not available on linux
+    DXCW_LOG_ERROR("Shader reflection is unavailable without D3D12");
+    return false;
+#endif
 }
 
 dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
@@ -561,18 +677,6 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
         DXCW_LOG_ERROR("{}", static_cast<char const*>(pErrors->GetBufferPointer()));
     }
 
-    //    IDxcBlobUtf8* pReflection = nullptr;
-    //    DEFER_RELEASE(pReflection);
-    //    result->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&pReflection), nullptr);
-    //    if (pReflection != nullptr && pReflection->GetStringLength() != 0)
-    //    {
-    //        DXCW_LOG("{}", static_cast<char const*>(pReflection->GetBufferPointer()));
-    //    }
-    //    else
-    //    {
-    //        DXCW_LOG_ERROR("failed to receive reflection");
-    //    }
-
     // Quit on failure
     HRESULT hrStatus;
     result->GetStatus(&hrStatus);
@@ -668,6 +772,12 @@ void dxcw::destroy_blob(IDxcBlob* blob)
     {
         blob->Release();
     }
+}
+
+void dxcw::destroy_result(IDxcResult* blob)
+{
+    if (blob)
+        blob->Release();
 }
 
 void dxcw::destroy(const dxcw::binary& b) { destroy_blob(b.internal_blob); }

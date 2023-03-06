@@ -10,9 +10,13 @@
 
 struct IDxcBlob;
 struct IDxcLibrary;
+struct IDxcUtils;
 struct IDxcCompiler3;
 struct IDxcContainerReflection;
 struct IDxcIncludeHandler;
+struct IDxcResult;
+struct IDxcBlobUtf8;
+typedef struct _D3D12_SHADER_DESC D3D12_SHADER_DESC;
 
 namespace dxcw
 {
@@ -27,6 +31,7 @@ struct DXCW_API binary
 };
 
 DXCW_API void destroy_blob(IDxcBlob* blob);
+DXCW_API void destroy_result(IDxcResult* blob);
 DXCW_API void destroy(binary const& b);
 
 enum class target : uint8_t
@@ -75,6 +80,40 @@ struct library_export
     char const* export_name = nullptr;   ///< name of the export as it will be visible in the binary (same as internal if nullptr)
 };
 
+struct shader_description
+{
+    // the HLSL code (ascii text)
+    char const* raw_text = nullptr;
+    // name of the entrypoint function
+    char const* entrypoint = nullptr;
+    // shader stage
+    target target = target::vertex;
+    shader_model sm = shader_model::sm_use_default;
+};
+
+struct library_description
+{
+    // the HLSL code (ascii text)
+    char const* raw_text = nullptr;
+    // internal and exported name per export
+    cc::span<library_export const> exports = {};
+};
+
+struct compilation_config
+{
+    // output format, DXIL (D3D12) or SPIR-V (Vulkan)
+    output output_format = output::dxil;
+    // disable optimizations (-Od) and embed PDB information into binary (-Zi, -Qembed_debug)
+    bool build_debug = false;
+
+    // additional paths used for #include directive resolution (optional)
+    cc::span<char const* const> additional_include_paths = {};
+    // defines (ex.: "MYVAL=1", "WITH_IBL=0", "HAS_EMISSIVE") (optional)
+    cc::span<char const* const> defines = {};
+    // filename that is logged if errors occur during compilation (optional)
+    char const* filename_for_errors = nullptr;
+};
+
 struct DXCW_API compiler
 {
 public:
@@ -104,6 +143,24 @@ public:
                                         char const* opt_filename_for_errors = nullptr,
                                         cc::span<char const* const> opt_defines = {},
                                         cc::allocator* scratch_alloc = cc::system_allocator);
+
+    // Advanced API: Retrieve a IDxcResult* for detailed interaction
+    IDxcResult* compile_shader_result(shader_description const& shader, compilation_config const& config, cc::allocator* scratch_alloc = cc::system_allocator);
+
+    // Returns true if the compilation succeeded
+    bool is_result_successful(IDxcResult* result);
+
+    // Extracts the binary from the result
+    bool get_result_binary(IDxcResult* result, binary* out_binary);
+
+    // Extracts an error string, returns true if errors / warnings occured
+    // If this returns true, must call free_result_error_blob on *out_blob_to_free
+    bool get_result_error_string(IDxcResult* result, IDxcBlobUtf8** out_blob_to_free, char** out_error_string);
+
+    void free_result_error_blob(IDxcBlobUtf8* blob_to_free);
+
+    // Extracts reflection data from the result (include <d3d12shader.h> for the struct, Windows only)
+    bool get_result_reflection(IDxcResult* result, D3D12_SHADER_DESC* out_shader_desc);
 
     ///
     /// \brief compiles HLSL code to a DXIL or SPIR-V library binary
@@ -144,10 +201,10 @@ public:
 
     static shader_model get_default_shader_model();
 
-private:
     IDxcLibrary* _lib = nullptr;
     IDxcCompiler3* _compiler = nullptr;
-    // IDxcContainerReflection* _reflection = nullptr;
+    IDxcUtils* _utils = nullptr;
+    IDxcContainerReflection* _reflection = nullptr;
     IDxcIncludeHandler* _include_handler = nullptr;
 };
 }
