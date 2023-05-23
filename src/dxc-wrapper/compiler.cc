@@ -265,62 +265,6 @@ void dxcw::compiler::destroy()
     _lib = nullptr;
 }
 
-dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
-                                            const char* entrypoint,
-                                            dxcw::target target,
-                                            dxcw::output output,
-                                            dxcw::shader_model sm,
-                                            bool build_debug,
-                                            cc::span<char const* const> opt_additional_include_paths,
-                                            char const* opt_filename_for_errors,
-                                            cc::span<char const* const> opt_defines,
-                                            cc::allocator* scratch_alloc)
-{
-#ifdef DXCW_HAS_OPTICK
-    OPTICK_EVENT();
-#endif
-    CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
-
-    shader_description shader = {};
-    shader.raw_text = raw_text;
-    shader.entrypoint = entrypoint;
-    shader.target = target;
-    shader.sm = sm;
-
-    compilation_config config = {};
-    config.output_format = output;
-    config.build_debug = build_debug;
-    config.additional_include_paths = opt_additional_include_paths;
-    config.defines = opt_defines;
-    config.filename_for_errors = opt_filename_for_errors;
-
-    IDxcResult* result = this->compile_shader_result(shader, config, scratch_alloc);
-    DEFER_RELEASE(result);
-
-    // Print errors and warning if present
-    IDxcBlobUtf8* pErrors = nullptr;
-    char* pErrorString = nullptr;
-    DEFER_RELEASE(pErrors);
-    if (get_result_error_string(result, &pErrors, &pErrorString))
-    {
-        DXCW_LOG_ERROR(R"(shader "{}", entrypoint "{}" ({}):)", opt_filename_for_errors, entrypoint, get_output_type_literal(output));
-        DXCW_LOG_ERROR("{}", pErrorString);
-
-        //        DXCW_LOG_ERROR("include root: {}", opt_additional_include_paths);
-        //        DXCW_LOG_ERROR("working dir: {}", std::filesystem::current_path().string().c_str());
-        //        DXCW_LOG_ERROR("compiling primary source of {} chars", raw_text_length);
-    }
-
-    // Return binary blob
-    binary res = {};
-    if (!get_result_binary(result, &res))
-    {
-        DXCW_LOG_ERROR("compilation failed");
-        return binary{nullptr};
-    }
-    return res;
-}
-
 IDxcResult* dxcw::compiler::compile_shader_result(shader_description const& shader, compilation_config const& config, cc::allocator* scratch_alloc)
 {
 #ifdef DXCW_HAS_OPTICK
@@ -418,7 +362,152 @@ IDxcResult* dxcw::compiler::compile_shader_result(shader_description const& shad
 
     IDxcResult* result = nullptr;
     _compiler->Compile(&source_buffer, argmem.get_data(), argmem.get_num(), _include_handler, IID_PPV_ARGS(&result));
+    return result;
+}
 
+IDxcResult* dxcw::compiler::compile_library_result(library_description const& library, compilation_config const& config, cc::allocator* scratch_alloc)
+{
+#ifdef DXCW_HAS_OPTICK
+    OPTICK_EVENT();
+#endif
+
+    CC_CONTRACT(library.raw_text);
+    CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
+
+    IDxcBlobEncoding* encoding = nullptr;
+    DEFER_RELEASE(encoding);
+
+    auto const raw_text_length = uint32_t(std::strlen(library.raw_text));
+    CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
+    _lib->CreateBlobWithEncodingFromPinned(library.raw_text, raw_text_length, CP_UTF8, &encoding);
+
+    widechar_memory wmem;
+    size_t num_chars_defines = 0;
+    for (char const* const define : config.defines)
+    {
+        num_chars_defines += std::strlen(define) + 1;
+    }
+    wmem.initialize(1024 + 1024 + 1024 + num_chars_defines, scratch_alloc);
+
+    argument_memory argmem;
+    argmem.initialize(30 + library.exports.size() * 2, scratch_alloc);
+
+    if (config.filename_for_errors)
+    {
+        // the filename for errors is simply any non-flag argument to the compilation
+        argmem.add_arg(wmem.convert_and_add_text(config.filename_for_errors));
+    }
+
+    if (config.output_format == output::spirv)
+    {
+        // SPIR-V specific flags
+        // -spirv: output SPIR-V
+        // -fspv-target-env=vulkan1.1: target Vk 1.1
+        // -fspv-extension=SPV_NV_ray_tracing: use SKV_NV_ray_tracing (as opposed to the default SPV_KHR_ray_tracing)
+        // -fvk-use-dx-layout: no std140/std430/other vulkan-specific layouting, behave just like HLSL->D3D12
+        // -fvk-b/t/u/s-shift: shift registers up to avoid overlap, phi-specific
+
+        wchar_t const* spirv_args[] = {L"-spirv", L"-fspv-target-env=vulkan1.1",
+                                       //                                       L"-fspv-extension=SPV_NV_ray_tracing",
+                                       L"-fvk-use-dx-layout", L"-fspv-reflect", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all",
+                                       L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
+        argmem.add_multiple_args(spirv_args, CC_COUNTOF(spirv_args));
+    }
+    else if (config.output_format == output::dxil)
+    {
+        // suppress warnings about [[vk::push_constant]] when compiling to dxil
+        argmem.add_arg(L"-Wno-ignored-attributes");
+    }
+
+    // profile target
+    argmem.add_arg(L"-T");
+    argmem.add_arg(L"lib_" DXCW_DEFAULT_SHADER_MODEL_STR);
+
+    // include paths
+    for (char const* additional_include_path : config.additional_include_paths)
+    {
+        argmem.add_arg(L"-I");
+        argmem.add_arg(wmem.convert_and_add_text(additional_include_path));
+    }
+
+
+    if (config.build_debug)
+    {
+        argmem.add_arg(L"-Od");           // disable optimization
+        argmem.add_arg(L"-Zi");           // -Zi: build debug information
+        argmem.add_arg(L"-Qembed_debug"); // embed debug info as opposed to creating a PDB
+    }
+    else
+    {
+        argmem.add_arg(L"-O3"); // full optimization
+    }
+
+    // defines
+    for (char const* const define : config.defines)
+    {
+        argmem.add_arg(L"-D");
+        argmem.add_arg(wmem.convert_and_add_text(define));
+    }
+
+    // exports
+    auto export_text = cc::alloc_array<wchar_t>::uninitialized(library.exports.size() * 128, scratch_alloc);
+    unsigned num_chars_export_text = 0;
+
+    [[maybe_unused]] auto const f_add_export_wchars = [&](wchar_t const* text, unsigned strlen)
+    {
+        CC_ASSERT(num_chars_export_text + strlen <= export_text.size() && "text write OOB");
+        std::memcpy(export_text.data() + num_chars_export_text, text, strlen * sizeof(wchar_t));
+        num_chars_export_text += strlen;
+    };
+
+    auto const f_add_export_entry_text = [&](char const* export_name, char const* internal_name) -> wchar_t const*
+    {
+        CC_ASSERT(internal_name != nullptr && "internal name is required on library exports");
+
+        // from dxc.exe -help:
+        //   -exports <value>        Specify exports when compiling a library: export1[[,export1_clone,...]=internal_name][;...]
+        // form of export entries:
+        // <export name>=<internal name>, f.e. closest_hit=MainClosestHit
+        // or only the export value if it's the same
+        // <export name>
+
+        wchar_t const* const res = export_text.data() + num_chars_export_text;
+
+        if (export_name)
+        {
+            // convert and write the export name
+
+            auto const num_wchars_written
+                = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), export_name);
+            num_chars_export_text += unsigned(num_wchars_written) + 1;
+
+            // write the equals sign
+            export_text[num_chars_export_text] = L'=';
+            ++num_chars_export_text;
+        }
+
+        // convert and write the internal name
+        auto const num_wchars_written
+            = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), internal_name);
+        num_chars_export_text += unsigned(num_wchars_written) + 1;
+
+
+        return res;
+    };
+
+    for (auto const& exp : library.exports)
+    {
+        argmem.add_arg(L"-exports");
+        argmem.add_arg(f_add_export_entry_text(exp.export_name, exp.internal_name));
+    }
+
+    DxcBuffer source_buffer;
+    source_buffer.Ptr = library.raw_text;
+    source_buffer.Size = std::strlen(library.raw_text);
+    source_buffer.Encoding = CP_UTF8;
+
+    IDxcResult* result = nullptr;
+    _compiler->Compile(&source_buffer, argmem.get_data(), argmem.get_num(), _include_handler, IID_PPV_ARGS(&result));
     return result;
 }
 
@@ -514,6 +603,62 @@ bool dxcw::compiler::get_result_reflection(IDxcResult* result, D3D12_SHADER_DESC
 #endif
 }
 
+dxcw::binary dxcw::compiler::compile_shader(const char* raw_text,
+    const char* entrypoint,
+    dxcw::target target,
+    dxcw::output output,
+    dxcw::shader_model sm,
+    bool build_debug,
+    cc::span<char const* const> opt_additional_include_paths,
+    char const* opt_filename_for_errors,
+    cc::span<char const* const> opt_defines,
+    cc::allocator* scratch_alloc)
+{
+#ifdef DXCW_HAS_OPTICK
+    OPTICK_EVENT();
+#endif
+    CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
+
+    shader_description shader = {};
+    shader.raw_text = raw_text;
+    shader.entrypoint = entrypoint;
+    shader.target = target;
+    shader.sm = sm;
+
+    compilation_config config = {};
+    config.output_format = output;
+    config.build_debug = build_debug;
+    config.additional_include_paths = opt_additional_include_paths;
+    config.defines = opt_defines;
+    config.filename_for_errors = opt_filename_for_errors;
+
+    IDxcResult* result = this->compile_shader_result(shader, config, scratch_alloc);
+    DEFER_RELEASE(result);
+
+    // Print errors and warning if present
+    IDxcBlobUtf8* pErrors = nullptr;
+    char* pErrorString = nullptr;
+    DEFER_RELEASE(pErrors);
+    if (get_result_error_string(result, &pErrors, &pErrorString))
+    {
+        DXCW_LOG_ERROR(R"(shader "{}", entrypoint "{}" ({}):)", opt_filename_for_errors, entrypoint, get_output_type_literal(output));
+        DXCW_LOG_ERROR("{}", pErrorString);
+
+        //        DXCW_LOG_ERROR("include root: {}", opt_additional_include_paths);
+        //        DXCW_LOG_ERROR("working dir: {}", std::filesystem::current_path().string().c_str());
+        //        DXCW_LOG_ERROR("compiling primary source of {} chars", raw_text_length);
+    }
+
+    // Return binary blob
+    binary res = {};
+    if (!get_result_binary(result, &res))
+    {
+        DXCW_LOG_ERROR("compilation failed");
+        return binary{nullptr};
+    }
+    return res;
+}
+
 dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                              cc::span<const library_export> exports,
                                              dxcw::output output,
@@ -523,174 +668,45 @@ dxcw::binary dxcw::compiler::compile_library(const char* raw_text,
                                              cc::span<char const* const> opt_defines,
                                              cc::allocator* scratch_alloc)
 {
-#ifdef DXCW_HAS_OPTICK
-    OPTICK_EVENT();
-#endif
 
-    CC_CONTRACT(raw_text);
     CC_ASSERT(_lib != nullptr && "Uninitialized dxcw::compiler");
 
-    IDxcBlobEncoding* encoding = nullptr;
-    DEFER_RELEASE(encoding);
+    library_description library = {};
+    library.raw_text = raw_text;
+    library.exports = exports;
 
-    auto const raw_text_length = uint32_t(std::strlen(raw_text));
-    CC_ASSERT(raw_text_length > 0 && "DXCW shader src text empty");
-    _lib->CreateBlobWithEncodingFromPinned(raw_text, raw_text_length, CP_UTF8, &encoding);
-    widechar_memory wmem;
-    size_t num_chars_defines = 0;
-    for (char const* const define : opt_defines)
-    {
-        num_chars_defines += std::strlen(define) + 1;
-    }
-    wmem.initialize(1024 + 1024 + 1024 + num_chars_defines, scratch_alloc);
+    compilation_config config = {};
+    config.output_format = output;
+    config.build_debug = build_debug;
+    config.additional_include_paths = opt_additional_include_paths;
+    config.defines = opt_defines;
+    config.filename_for_errors = opt_filename_for_errors;
 
-    argument_memory argmem;
-    argmem.initialize(30 + exports.size() * 2, scratch_alloc);
-
-    if (opt_filename_for_errors)
-    {
-        // the filename for errors is simply any non-flag argument to the compilation
-        argmem.add_arg(wmem.convert_and_add_text(opt_filename_for_errors));
-    }
-
-    if (output == output::spirv)
-    {
-        // SPIR-V specific flags
-        // -spirv: output SPIR-V
-        // -fspv-target-env=vulkan1.1: target Vk 1.1
-        // -fspv-extension=SPV_NV_ray_tracing: use SKV_NV_ray_tracing (as opposed to the default SPV_KHR_ray_tracing)
-        // -fvk-use-dx-layout: no std140/std430/other vulkan-specific layouting, behave just like HLSL->D3D12
-        // -fvk-b/t/u/s-shift: shift registers up to avoid overlap, phi-specific
-
-        wchar_t const* spirv_args[] = {L"-spirv", L"-fspv-target-env=vulkan1.1",
-                                       //                                       L"-fspv-extension=SPV_NV_ray_tracing",
-                                       L"-fvk-use-dx-layout", L"-fspv-reflect", L"-fvk-b-shift", L"0", L"all", L"-fvk-t-shift", L"1000", L"all",
-                                       L"-fvk-u-shift", L"2000", L"all", L"-fvk-s-shift", L"3000", L"all"};
-        argmem.add_multiple_args(spirv_args, CC_COUNTOF(spirv_args));
-    }
-    else if (output == output::dxil)
-    {
-        // suppress warnings about [[vk::push_constant]] when compiling to dxil
-        argmem.add_arg(L"-Wno-ignored-attributes");
-    }
-
-    // profile target
-    argmem.add_arg(L"-T");
-    argmem.add_arg(L"lib_" DXCW_DEFAULT_SHADER_MODEL_STR);
-
-    // include paths
-    for (char const* additional_include_path : opt_additional_include_paths)
-    {
-        argmem.add_arg(L"-I");
-        argmem.add_arg(wmem.convert_and_add_text(additional_include_path));
-    }
-
-
-    if (build_debug)
-    {
-        argmem.add_arg(L"-Od");           // disable optimization
-        argmem.add_arg(L"-Zi");           // -Zi: build debug information
-        argmem.add_arg(L"-Qembed_debug"); // embed debug info as opposed to creating a PDB
-    }
-    else
-    {
-        argmem.add_arg(L"-O3"); // full optimization
-    }
-
-    // defines
-    for (char const* const define : opt_defines)
-    {
-        argmem.add_arg(L"-D");
-        argmem.add_arg(wmem.convert_and_add_text(define));
-    }
-
-    // exports
-    auto export_text = cc::alloc_array<wchar_t>::uninitialized(exports.size() * 128, scratch_alloc);
-    unsigned num_chars_export_text = 0;
-
-    [[maybe_unused]] auto const f_add_export_wchars = [&](wchar_t const* text, unsigned strlen)
-    {
-        CC_ASSERT(num_chars_export_text + strlen <= export_text.size() && "text write OOB");
-        std::memcpy(export_text.data() + num_chars_export_text, text, strlen * sizeof(wchar_t));
-        num_chars_export_text += strlen;
-    };
-
-    auto const f_add_export_entry_text = [&](char const* export_name, char const* internal_name) -> wchar_t const*
-    {
-        CC_ASSERT(internal_name != nullptr && "internal name is required on library exports");
-
-        // from dxc.exe -help:
-        //   -exports <value>        Specify exports when compiling a library: export1[[,export1_clone,...]=internal_name][;...]
-        // form of export entries:
-        // <export name>=<internal name>, f.e. closest_hit=MainClosestHit
-        // or only the export value if it's the same
-        // <export name>
-
-        wchar_t const* const res = export_text.data() + num_chars_export_text;
-
-        if (export_name)
-        {
-            // convert and write the export name
-
-            auto const num_wchars_written
-                = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), export_name);
-            num_chars_export_text += unsigned(num_wchars_written) + 1;
-
-            // write the equals sign
-            export_text[num_chars_export_text] = L'=';
-            ++num_chars_export_text;
-        }
-
-        // convert and write the internal name
-        auto const num_wchars_written
-            = cc::char_to_widechar(cc::span{export_text}.subspan(num_chars_export_text, export_text.size() - num_chars_export_text), internal_name);
-        num_chars_export_text += unsigned(num_wchars_written) + 1;
-
-
-        return res;
-    };
-
-    for (auto const& exp : exports)
-    {
-        argmem.add_arg(L"-exports");
-        argmem.add_arg(f_add_export_entry_text(exp.export_name, exp.internal_name));
-    }
-
-    DxcBuffer source_buffer;
-    source_buffer.Ptr = raw_text;
-    source_buffer.Size = std::strlen(raw_text);
-    source_buffer.Encoding = CP_UTF8;
-
-    IDxcResult* result = nullptr;
+    IDxcResult* result = this->compile_library_result(library, config, scratch_alloc);
     DEFER_RELEASE(result);
-    _compiler->Compile(&source_buffer, argmem.get_data(), argmem.get_num(), _include_handler, IID_PPV_ARGS(&result));
 
     // Print errors and warning if present
     IDxcBlobUtf8* pErrors = nullptr;
+    char* pErrorString = nullptr;
     DEFER_RELEASE(pErrors);
-    result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&pErrors), nullptr);
-    // Note that d3dcompiler would return null if no errors or warnings are present.
-    // IDxcCompiler3::Compile will always return an error buffer, but its length will be zero if there are no warnings or errors.
-    if (pErrors != nullptr && pErrors->GetStringLength() != 0)
+    if (get_result_error_string(result, &pErrors, &pErrorString))
     {
-        DXCW_LOG_ERROR(R"(shader library "{}", ({}):)", opt_filename_for_errors, get_output_type_literal(output));
-        DXCW_LOG_ERROR("{}", static_cast<char const*>(pErrors->GetBufferPointer()));
+        DXCW_LOG_ERROR(R"(shader library "{}" ({}):)", opt_filename_for_errors, get_output_type_literal(output));
+        DXCW_LOG_ERROR("{}", pErrorString);
+
+        //        DXCW_LOG_ERROR("include root: {}", opt_additional_include_paths);
+        //        DXCW_LOG_ERROR("working dir: {}", std::filesystem::current_path().string().c_str());
+        //        DXCW_LOG_ERROR("compiling primary source of {} chars", raw_text_length);
     }
 
-    // Quit on failure
-    HRESULT hrStatus;
-    result->GetStatus(&hrStatus);
-    if (FAILED(hrStatus))
+    // Return binary blob
+    binary res = {};
+    if (!get_result_binary(result, &res))
     {
         DXCW_LOG_ERROR("compilation failed");
         return binary{nullptr};
     }
-
-
-    // Return binary blob
-    IDxcBlob* pShader = nullptr;
-    result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&pShader), nullptr);
-    return binary{pShader};
+    return res;
 }
 
 bool dxcw::compiler::print_version() const

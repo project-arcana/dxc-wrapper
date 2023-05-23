@@ -120,32 +120,11 @@ public:
     void initialize();
     void destroy();
 
-    ///
-    /// \brief compiles HLSL code to a DXIL or SPIR-V shader binary
-    /// \param raw_text                         - the HLSL code (ascii text)
-    /// \param entrypoint                       - name of the entrypoint function
-    /// \param target                           - shader stage
-    /// \param output                           - output format, DXIL (D3D12) or SPIR-V (Vulkan)
-    /// \param build_debug                      - disable optimizations (-Od) and embed PDB information into binary (-Zi, -Qembed_debug)
-    /// \param opt_additional_include_paths     - additional paths used for #include directive resolution (optional)
-    /// \param opt_filename_for_errors          - filename that is logged if errors occur during compilation (optional)
-    /// \param opt_defines                      - defines (ex.: "MYVAL=1", "WITH_IBL=0", "HAS_EMISSIVE") (optional)
-    /// \param scratch_alloc                    - allocator used for scratch memory required during compilation
-    /// \return binary data, can outlive compiler, must be freed using dxcw::destroy
-    ///
-    [[nodiscard]] binary compile_shader(char const* raw_text,
-                                        char const* entrypoint,
-                                        target target,
-                                        output output,
-                                        shader_model sm = shader_model::sm_use_default,
-                                        bool build_debug = false,
-                                        cc::span<char const* const> opt_additional_include_paths = {},
-                                        char const* opt_filename_for_errors = nullptr,
-                                        cc::span<char const* const> opt_defines = {},
-                                        cc::allocator* scratch_alloc = cc::system_allocator);
-
     // Advanced API: Retrieve a IDxcResult* for detailed interaction
     IDxcResult* compile_shader_result(shader_description const& shader, compilation_config const& config, cc::allocator* scratch_alloc = cc::system_allocator);
+
+    // Advanced API: Retrieve a IDxcResult* for detailed interaction
+    IDxcResult* compile_library_result(library_description const& library, compilation_config const& config, cc::allocator* scratch_alloc = cc::system_allocator);
 
     // Returns true if the compilation succeeded
     bool is_result_successful(IDxcResult* result);
@@ -161,6 +140,31 @@ public:
 
     // Extracts reflection data from the result (include <d3d12shader.h> for the struct, Windows only)
     bool get_result_reflection(IDxcResult* result, D3D12_SHADER_DESC* out_shader_desc);
+
+
+    ///
+    /// \brief compiles HLSL code to a DXIL or SPIR-V shader binary
+    /// \param raw_text                         - the HLSL code (ascii text)
+    /// \param entrypoint                       - name of the entrypoint function
+    /// \param target                           - shader stage
+    /// \param output                           - output format, DXIL (D3D12) or SPIR-V (Vulkan)
+    /// \param build_debug                      - disable optimizations (-Od) and embed PDB information into binary (-Zi, -Qembed_debug)
+    /// \param opt_additional_include_paths     - additional paths used for #include directive resolution (optional)
+    /// \param opt_filename_for_errors          - filename that is logged if errors occur during compilation (optional)
+    /// \param opt_defines                      - defines (ex.: "MYVAL=1", "WITH_IBL=0", "HAS_EMISSIVE") (optional)
+    /// \param scratch_alloc                    - allocator used for scratch memory required during compilation
+    /// \return binary data, can outlive compiler, must be freed using dxcw::destroy
+    ///
+    [[nodiscard]] binary compile_shader(char const* raw_text,
+        char const* entrypoint,
+        target target,
+        output output,
+        shader_model sm = shader_model::sm_use_default,
+        bool build_debug = false,
+        cc::span<char const* const> opt_additional_include_paths = {},
+        char const* opt_filename_for_errors = nullptr,
+        cc::span<char const* const> opt_defines = {},
+        cc::allocator* scratch_alloc = cc::system_allocator);
 
     ///
     /// \brief compiles HLSL code to a DXIL or SPIR-V library binary
