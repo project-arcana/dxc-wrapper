@@ -915,8 +915,10 @@ cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_pat
     std::string token1;
     std::string token2;
 
-    auto const f_add_file = [&](char const* path, unsigned num_prev_includes) -> unsigned
+    auto const f_add_file = [&](fixed_string in_path, unsigned num_prev_includes) -> unsigned
     {
+        char const* const path = in_path.str;
+
         std::ifstream in_file(path, std::ios_base::in | std::ios_base::binary);
         if (!in_file.good())
             return 0;
@@ -1003,7 +1005,9 @@ cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_pat
         return num_added_includes;
     };
 
-    char const* next_file_to_add = source_path;
+    fixed_string next_file_to_add = {};
+    DXCW_STRNCPY(next_file_to_add.str, source_path, sizeof(next_file_to_add.str));
+
     int include_cursor = -1;
     unsigned num_latest_addition = 0;
 
@@ -1011,7 +1015,7 @@ cc::alloc_vector<dxcw::fixed_string> dxcw::parse_includes(const char* source_pat
     {
         if (include_cursor >= 0)
         {
-            next_file_to_add = res_includes[include_cursor].str;
+            next_file_to_add = res_includes[include_cursor];
         }
 
         //        printf("    cursor %d, num_includes: %u, next file: %s\n", include_cursor, num_includes, next_file_to_add);
