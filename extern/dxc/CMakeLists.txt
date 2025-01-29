@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.8)
 project(DXCmake)
 
-set(DXCW_ACTIVE_DXC_COMMIT_HASH "dad1cfc308e4a0dd49b2589e10b5427803ea6a6e")
+set(DXCW_ACTIVE_DXC_COMMIT_HASH "416fab6b5c4ba956a320d9131102304da995edfc")
 set(DXCW_ACTIVE_DXC_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${DXCW_ACTIVE_DXC_COMMIT_HASH}")
 
 file(GLOB_RECURSE SOURCES "lib/*.h")
@@ -32,6 +32,6 @@ if (MSVC)
 else()
     target_link_libraries(dxc-wrap
         PUBLIC
-            "${DXCW_ACTIVE_DXC_PATH}/lib_linux/libdxcompiler.so.3.7"
+            "${DXCW_ACTIVE_DXC_PATH}/lib_linux/libdxcompiler.so"
     )
 endif()
