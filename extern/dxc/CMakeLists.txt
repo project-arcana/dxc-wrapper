@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.13)
 project(DXCmake)
 
 set(DXCW_ACTIVE_DXC_COMMIT_HASH "416fab6b5c4ba956a320d9131102304da995edfc")
