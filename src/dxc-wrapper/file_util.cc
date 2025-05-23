@@ -1060,6 +1060,12 @@ bool dxcw::parse_target(const char* str, dxcw::target& out_tgt)
     case 'c':
         out_tgt = dxcw::target::compute;
         return true;
+    case 'a':
+        out_tgt = dxcw::target::amplification;
+        return true;
+    case 'm':
+        out_tgt = dxcw::target::mesh;
+        return true;
     default:
         return false;
     }
